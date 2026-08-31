@@ -1,0 +1,5 @@
+# Versione pinnata: il codice è stato scritto e testato su questa
+# versione esatta di Flet. Versioni molto più recenti hanno cambiato
+# alcune API (es. gestione dialog/overlay) e potrebbero richiedere
+# piccoli adattamenti.
+flet==0.28.3

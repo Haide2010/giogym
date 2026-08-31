@@ -61,12 +61,12 @@ class GioGymApp:
     # ------------------------------------------------------------------
     # Navigazione: ogni show_* sostituisce il contenuto della pagina
     # ------------------------------------------------------------------
-    def _set_content(self, control: ft.Control):
+def _set_content(self, control: ft.Control):
         self.page.controls.clear()
         self.page.controls.append(
             ft.Container(
                 content=control,
-                padding=theme.PADDING,
+                padding=ft.padding.only(top=25, left=theme.PADDING, right=theme.PADDING, bottom=theme.PADDING),
                 expand=True,
                 bgcolor=theme.BG,
             )

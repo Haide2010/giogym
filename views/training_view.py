@@ -1,34 +1,25 @@
 """
 training_view.py
 ------------------
-Schermata C + D - Training Attivo e Rest Timer.
-
-Il cuore dell'app: per il giorno scelto mostra tutti gli esercizi con le
-relative serie (peso/reps precompilati dalla scheda), permette di
-segnare ogni serie come completata e, a quel punto, avvia in automatico
-un timer di recupero mostrato in un dialog modale con controlli rapidi
-(+30s / -30s) e uno slider per impostare la durata di default.
-
-Alla fine, "Termina e Salva Allenamento" scrive la sessione nello
-storico e aggiorna i pesi di riferimento della scheda.
+Schermata C + D - Training Attivo, Rest Timer e nuove funzioni avanzate.
 """
 
 import asyncio
 import re
+from datetime import datetime
 
 import flet as ft
 import theme
 import data_manager as dm
+import pr_manager
 
-REST_MAX_SECONDS = 180   # 3 minuti, come da specifica
+REST_MAX_SECONDS = 180
 REST_STEP_SECONDS = 30
 REST_DEFAULT_SECONDS = 90
-REST_WARNING_THRESHOLD = 10  # secondi rimanenti sotto i quali il timer "avvisa"
+REST_WARNING_THRESHOLD = 10
 
 
 def _parse_target_reps(ripetizioni_str: str) -> str:
-    """Estrae un valore reps iniziale ragionevole dal target (es. '8-10' -> '8').
-    Ritorna comunque una stringa: l'utente può modificarla liberamente."""
     match = re.search(r"\d+", str(ripetizioni_str))
     return match.group(0) if match else ""
 
@@ -40,9 +31,13 @@ class TrainingView:
         self.giorno_index = giorno_index
         self.giorno = app.data["scheda"]["giorni"][giorno_index]
 
-        # Stato di sessione: una lista di serie per ogni esercizio.
-        # Non tocca ancora i dati salvati (self.app.data) finché non si
-        # preme "Termina e Salva Allenamento".
+        # --- Cronometro Globale Sessione ---
+        self.session_start_time = datetime.now()
+        self.elapsed_seconds = 0
+        self.global_timer_running = True
+        self.global_timer_text = ft.Text("00:00", size=14, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)
+
+        # Stato di sessione
         self.session = []
         for esercizio in self.giorno["esercizi"]:
             n_serie = max(1, int(esercizio.get("serie", 3)))
@@ -56,8 +51,17 @@ class TrainingView:
             ]
             self.session.append(serie_list)
 
-        # Riferimenti ai controlli "check" per aggiornarne icona/colore
-        self._check_buttons = {}  # (ex_idx, serie_idx) -> IconButton
+        self._check_buttons = {}
+        self._note_fields = {}
+
+        # Campo note generali della sessione
+        self.general_notes_field = ft.TextField(
+            label="Note generali della sessione (es. riscaldamento, energie...)",
+            text_size=13,
+            dense=True,
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+        )
 
         # --- Stato Rest Timer ---
         self.rest_default_seconds = REST_DEFAULT_SECONDS
@@ -107,7 +111,6 @@ class TrainingView:
             actions_alignment=ft.MainAxisAlignment.CENTER,
         )
 
-        # Snackbar riutilizzata per notificare fine recupero
         self.timer_end_snack = ft.SnackBar(
             content=ft.Text("Tempo di recupero terminato! 💪"),
             bgcolor=theme.SUCCESS,
@@ -120,12 +123,23 @@ class TrainingView:
         header = ft.Row(
             [
                 ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=self._on_back),
-                ft.Text(
-                    self.giorno.get("nome", "Allenamento"),
-                    size=theme.TITLE_SIZE,
-                    weight=ft.FontWeight.BOLD,
-                    color=theme.TEXT,
-                ),
+                ft.Column(
+                    [
+                        ft.Text(
+                            self.giorno.get("nome", "Allenamento"),
+                            size=theme.TITLE_SIZE,
+                            weight=ft.FontWeight.BOLD,
+                            color=theme.TEXT,
+                        ),
+                        ft.Row([
+                            ft.Icon(ft.Icons.TIMER, size=14, color=theme.PRIMARY),
+                            ft.Text("Tempo totale: ", size=12, color=theme.TEXT_MUTED),
+                            self.global_timer_text,
+                        ], spacing=4)
+                    ],
+                    spacing=0,
+                    expand=True,
+                )
             ]
         )
 
@@ -134,7 +148,11 @@ class TrainingView:
             for idx, esercizio in enumerate(self.giorno["esercizi"])
         ]
 
-        esercizi_list = ft.ListView(controls=esercizi_controls, expand=True, spacing=14)
+        esercizi_list = ft.ListView(
+            controls=[self.general_notes_field] + esercizi_controls, 
+            expand=True, 
+            spacing=14
+        )
 
         finish_btn = ft.ElevatedButton(
             content=ft.Row(
@@ -147,6 +165,10 @@ class TrainingView:
             height=54,
             on_click=self._on_finish,
         )
+
+        # Avvia il task asincrono per il cronometro globale della sessione
+        if self.page:
+            self.page.run_task(self._global_timer_loop)
 
         return ft.Column(
             [
@@ -166,20 +188,46 @@ class TrainingView:
             spacing=8,
         )
 
+    def _get_last_performance(self, ex_name: str) -> str:
+        """Cerca nello storico l'ultima prestazione registrata per questo esercizio."""
+        for sessione in reversed(self.app.data.get("storico", [])):
+            for ex in sessione.get("esercizi", []):
+                if ex.get("nome", "").strip().lower() == ex_name.strip().lower():
+                    serie_svolte = ex.get("serie_svolte", [])
+                    if serie_svolte:
+                        ultima = serie_svolte[-1]
+                        return f"Ultima volta: {ultima.get('peso', 0)} kg × {ultima.get('reps', '-')} reps"
+        return "Nessuno storico precedente"
+
     def _build_esercizio_card(self, ex_idx: int, esercizio: dict) -> ft.Control:
+        ex_name = esercizio.get("nome", "Esercizio")
         target = f'{esercizio.get("ripetizioni", "-")} reps · rif. {esercizio.get("peso_riferimento", 0)} kg'
+        last_perf = self._get_last_performance(ex_name)
 
         serie_rows = ft.Column(spacing=6)
         for s_idx, serie in enumerate(self.session[ex_idx]):
             serie_rows.controls.append(self._build_serie_row(ex_idx, s_idx, serie))
 
+        note_field = ft.TextField(
+            label="Note esercizio (es. pump, aumentare carico...)",
+            text_size=12,
+            dense=True,
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+            content_padding=10,
+        )
+        self._note_fields[ex_idx] = note_field
+
         return theme.card_container(
             ft.Column(
                 [
-                    ft.Text(esercizio.get("nome", "Esercizio"), size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ft.Text(ex_name, size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
                     ft.Text(target, size=12, color=theme.TEXT_MUTED),
+                    ft.Text(last_perf, size=11, color=theme.PRIMARY, italic=True),
                     ft.Divider(color=theme.BORDER, height=8),
                     serie_rows,
+                    ft.Divider(color=theme.BORDER, height=4),
+                    note_field,
                 ],
                 spacing=6,
             ),
@@ -222,9 +270,20 @@ class TrainingView:
             alignment=ft.MainAxisAlignment.START,
         )
 
-    # ------------------------------------------------------------------
-    # Aggiornamento dati sessione
-    # ------------------------------------------------------------------
+    async def _global_timer_loop(self):
+        """Aggiorna ogni secondo il cronometro globale della sessione."""
+        while self.global_timer_running:
+            await asyncio.sleep(1)
+            self.elapsed_seconds += 1
+            mins, secs = divmod(self.elapsed_seconds, 60)
+            hrs, mins = divmod(mins, 60)
+            if hrs > 0:
+                self.global_timer_text.value = f"{hrs:02d}:{mins:02d}:{secs:02d}"
+            else:
+                self.global_timer_text.value = f"{mins:02d}:{secs:02d}"
+            if self.page:
+                self.page.update()
+
     def _update_serie(self, ex_idx, s_idx, campo, value):
         if campo == "peso":
             try:
@@ -245,9 +304,6 @@ class TrainingView:
         if serie["completata"]:
             self._start_rest_timer()
 
-    # ------------------------------------------------------------------
-    # Rest Timer
-    # ------------------------------------------------------------------
     def _on_default_duration_change(self, e):
         self.rest_default_seconds = int(self.rest_slider.value)
 
@@ -269,9 +325,6 @@ class TrainingView:
         self._refresh_timer_ui()
 
     async def _countdown_loop(self):
-        # Ciclo asincrono non bloccante: aggiorna la UI ogni secondo.
-        # Si interrompe se l'utente chiude/salta il timer (rest_running=False)
-        # o se esce dalla schermata di training.
         while self.rest_seconds_remaining > 0 and self.rest_running:
             await asyncio.sleep(1)
             self.rest_seconds_remaining -= 1
@@ -284,11 +337,6 @@ class TrainingView:
         self.rest_running = False
         self.timer_status.value = "TEMPO SCADUTO! Torna a lavorare 🔥"
         self.timer_status.color = theme.WARNING
-        # Avviso visivo: barra e testo diventano evidenti.
-        # NOTA: per un avviso sonoro/vibrazione reale su Android si può
-        # aggiungere un ft.Audio con un file in /assets (vedi README) e/o
-        # il pacchetto "flet-permission-handler" per l'haptic feedback;
-        # qui, per portabilità, usiamo un forte segnale visivo + SnackBar.
         self.page.open(self.timer_end_snack)
         self._refresh_timer_ui()
 
@@ -315,11 +363,9 @@ class TrainingView:
         self.rest_running = False
         self.page.close(self.timer_dialog)
 
-    # ------------------------------------------------------------------
-    # Navigazione / Fine allenamento
-    # ------------------------------------------------------------------
     def _on_back(self, e):
-        self.rest_running = False  # ferma eventuale countdown attivo
+        self.rest_running = False
+        self.global_timer_running = False
 
         def conferma(ev):
             self.page.close(confirm_dialog)
@@ -338,6 +384,7 @@ class TrainingView:
 
     def _on_finish(self, e):
         self.rest_running = False
+        self.global_timer_running = False
 
         def conferma(ev):
             self.page.close(confirm_dialog)
@@ -355,13 +402,18 @@ class TrainingView:
         self.page.open(confirm_dialog)
 
     def _salva_sessione(self):
+        self.global_timer_running = False
         esercizi_storico = []
         for ex_idx, esercizio in enumerate(self.giorno["esercizi"]):
-            serie_svolte = [dict(s) for s in self.session[ex_idx]]  # copia pulita
-            esercizi_storico.append({"nome": esercizio.get("nome", ""), "serie_svolte": serie_svolte})
+            serie_svolte = [dict(s) for s in self.session[ex_idx]]
+            note_text = self._note_fields[ex_idx].value if ex_idx in self._note_fields and self._note_fields[ex_idx].value else ""
 
-            # Aggiorna il peso di riferimento nella scheda con l'ultimo
-            # peso utilizzato nell'ultima serie svolta (se presente).
+            esercizi_storico.append({
+                "nome": esercizio.get("nome", ""), 
+                "serie_svolte": serie_svolte,
+                "note": note_text
+            })
+
             if serie_svolte:
                 ultimo_peso = serie_svolte[-1]["peso"]
                 try:
@@ -369,11 +421,69 @@ class TrainingView:
                 except (ValueError, TypeError):
                     pass
 
+        # Formatta la durata totale trascorsa in una stringa leggibile (es. "1h 12m" o "45m")
+        m, s = divmod(self.elapsed_seconds, 60)
+        h, m = divmod(m, 60)
+        durata_str = f"{h}h {m}m" if h > 0 else f"{m}m {s}s"
+
         sessione = {
             "data": dm.today_str(),
             "giorno_nome": self.giorno.get("nome", ""),
+            "durata": durata_str,
+            "note_generali": self.general_notes_field.value if self.general_notes_field.value else "",
             "esercizi": esercizi_storico,
         }
+
+        # Rileva eventuali nuovi Record Personali confrontando lo storico
+        # prima e dopo l'inserimento di questa sessione, per poterli
+        # celebrare con un badge a fine allenamento.
+        nuovi_pr = pr_manager.detect_new_prs(self.app.data.get("storico", []), sessione)
+
         self.app.data["storico"].append(sessione)
         self.app.save()
-        self.app.show_home()
+
+        if nuovi_pr:
+            self._mostra_badge_pr(nuovi_pr)
+        else:
+            self.app.show_home()
+
+    def _mostra_badge_pr(self, nuovi_pr: list):
+        """Mostra un dialog celebrativo con i nuovi record raggiunti in
+        questa sessione, poi torna alla Home."""
+
+        def _chiudi(ev):
+            self.page.close(dlg)
+            self.app.show_home()
+
+        righe = [
+            ft.Text(msg, size=13, color=theme.TEXT, weight=ft.FontWeight.BOLD)
+            for msg in nuovi_pr
+        ]
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.BG_CARD,
+            title=ft.Row(
+                [ft.Icon(ft.Icons.EMOJI_EVENTS, color=theme.GOLD, size=28),
+                 ft.Text("Nuovi Record! 🎉", color=theme.TEXT, weight=ft.FontWeight.BOLD)],
+                spacing=8,
+            ),
+            content=ft.Column(righe, spacing=8, tight=True),
+            actions=[ft.ElevatedButton("Fantastico!", bgcolor=theme.PRIMARY, color="white", on_click=_chiudi)],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        self.page.open(dlg)
+
+
+def build_training_view(app, giorno_selezionato: dict) -> ft.Control:
+    """Funzione helper per compatibilità con il router principale."""
+    # Trova l'indice del giorno selezionato all'interno della scheda
+    giorni = app.data["scheda"]["giorni"]
+    g_idx = 0
+    for idx, g in enumerate(giorni):
+        if g.get("nome") == giorno_selezionato.get("nome"):
+            g_idx = idx
+            break
+    
+    view_instance = TrainingView(app, g_idx)
+    return view_instance.build()

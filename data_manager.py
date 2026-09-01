@@ -118,3 +118,97 @@ def new_esercizio(nome: str = "", serie: int = 3, ripetizioni: str = "8-12",
 def new_giorno(nome: str = "Giorno") -> dict:
     """Factory per un giorno vuoto della scheda."""
     return {"nome": nome, "esercizi": []}
+
+
+# ----------------------------------------------------------------------
+# Backup: esportazione / importazione dati (JSON)
+# ----------------------------------------------------------------------
+
+def export_data_to_json(data: dict) -> str:
+    """Serializza l'intero dizionario dati in una stringa JSON leggibile,
+    pronta per essere scritta su file e condivisa/trasferita."""
+    payload = {
+        "app": "GioGym",
+        "versione_backup": 1,
+        "esportato_il": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "scheda": data.get("scheda", {"giorni": []}),
+        "storico": data.get("storico", []),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def export_backup_file(data: dict, directory: str) -> str:
+    """Scrive un file di backup timestampato nella cartella indicata e
+    ne ritorna il percorso completo."""
+    os.makedirs(directory, exist_ok=True)
+    filename = f"giogym_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    path = os.path.join(directory, filename)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(export_data_to_json(data))
+    return path
+
+
+class ImportError_(Exception):
+    """Errore sollevato quando un file/stringa di backup non è valido."""
+    pass
+
+
+def validate_backup_dict(parsed: dict) -> dict:
+    """Verifica che il dizionario importato abbia la struttura minima
+    attesa e ritorna un dizionario dati pulito e pronto all'uso.
+    Solleva ImportError_ se la struttura non è valida."""
+    if not isinstance(parsed, dict):
+        raise ImportError_("Il file non contiene un oggetto JSON valido.")
+
+    scheda = parsed.get("scheda")
+    storico = parsed.get("storico")
+
+    if scheda is None or storico is None:
+        raise ImportError_("Il file non sembra un backup di GioGym (chiavi 'scheda'/'storico' mancanti).")
+
+    if not isinstance(scheda, dict) or "giorni" not in scheda or not isinstance(scheda["giorni"], list):
+        raise ImportError_("La sezione 'scheda' del backup non è valida.")
+
+    if not isinstance(storico, list):
+        raise ImportError_("La sezione 'storico' del backup non è valida.")
+
+    return {"scheda": scheda, "storico": storico}
+
+
+def import_data_from_json(json_str: str) -> dict:
+    """Importa i dati da una stringa JSON di backup, validandone la
+    struttura. Ritorna un dizionario dati pronto per sostituire quello
+    corrente. Solleva ImportError_ in caso di file non valido."""
+    try:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError as exc:
+        raise ImportError_(f"File JSON non leggibile: {exc}") from exc
+    return validate_backup_dict(parsed)
+
+
+def merge_imported_data(current: dict, imported: dict) -> dict:
+    """Unisce i dati importati con quelli correnti: la scheda importata
+    sostituisce quella attuale, mentre lo storico viene unito evitando
+    duplicati esatti (stessa data + stesso giorno + stessi esercizi)."""
+    merged_storico = list(current.get("storico", []))
+    esistenti = {json.dumps(s, sort_keys=True, ensure_ascii=False) for s in merged_storico}
+
+    for sessione in imported.get("storico", []):
+        chiave = json.dumps(sessione, sort_keys=True, ensure_ascii=False)
+        if chiave not in esistenti:
+            merged_storico.append(sessione)
+            esistenti.add(chiave)
+
+    # Ordina lo storico unito per data (gg/mm/aaaa) quando possibile
+    def _key(s):
+        try:
+            return datetime.strptime(s.get("data", ""), "%d/%m/%Y")
+        except ValueError:
+            return datetime.min
+
+    merged_storico.sort(key=_key)
+
+    return {
+        "scheda": imported.get("scheda", current.get("scheda", {"giorni": []})),
+        "storico": merged_storico,
+    }

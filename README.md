@@ -20,15 +20,22 @@ Per questo progetto ho scelto **Flet** perché:
 
 ```
 giogym/
-├── main.py                 # Entry point + controller di navigazione (GioGymApp)
-├── data_manager.py         # Persistenza JSON locale (load/save)
+├── main.py                  # Entry point + controller di navigazione (GioGymApp)
+├── data_manager.py          # Persistenza JSON locale (load/save/export/import)
+├── pr_manager.py            # Calcolo Record Personali (PR) dallo storico
+├── plates_calculator.py     # Calcolatore piastre/dischi bilanciere
 ├── theme.py                 # Colori, stili, costanti UI condivise
 ├── requirements.txt
 ├── views/
-│   ├── home_view.py         # A) Home / Dashboard + storico
-│   ├── selection_view.py    # B) Selezione giorno allenamento
-│   ├── schema_view.py       # Editor scheda (1-7 giorni, esercizi)
-│   └── training_view.py     # C+D) Training attivo + Rest Timer
+│   ├── home_view.py           # A) Home / Dashboard + storico + accesso rapido
+│   ├── selection_view.py      # B) Selezione giorno allenamento
+│   ├── schema_view.py         # Editor scheda (1-7 giorni, esercizi)
+│   ├── training_view.py       # C+D) Training attivo + Rest Timer + badge PR
+│   ├── history_detail_view.py # Dettaglio di una sessione passata
+│   ├── pr_view.py             # Record Personali (PR) per esercizio
+│   ├── progress_view.py       # Grafici dei progressi (peso/volume nel tempo)
+│   ├── plates_view.py         # Calcolatore piastre/dischi
+│   └── backup_view.py         # Esportazione/importazione dati (backup JSON)
 ```
 
 I dati (scheda + storico allenamenti) vengono salvati in un file
@@ -175,10 +182,12 @@ Per semplicità e portabilità, l'avviso di fine recupero implementato è
 
 ## 5. Cosa fa già l'app (riepilogo funzionalità)
 
-- **Editor scheda** (icona ⚙️ in Home): configura da 1 a 7 giorni, ogni
-  giorno con esercizi (nome, serie, reps target, peso di riferimento).
-- **Home**: storico allenamenti completati (data + giorno + riepilogo
-  serie), pulsante grande "INIZIA ALLENAMENTO".
+- **Home**: storico allenamenti completati, calendario annuale, e una
+  sezione **"Accesso rapido"** con card per raggiungere in un tap tutte
+  le funzioni principali (Scheda, Record PR, Grafici, Piastre, Backup),
+  oltre al pulsante grande "INIZIA ALLENAMENTO".
+- **Editor scheda**: configura da 1 a 7 giorni, ogni giorno con
+  esercizi (nome, serie, reps target, peso di riferimento).
 - **Selezione**: scelta del giorno tra quelli configurati.
 - **Training attivo**: per ogni esercizio, serie con peso/reps
   precompilati e modificabili in tempo reale; tap sul cerchio di spunta
@@ -187,11 +196,38 @@ Per semplicità e portabilità, l'avviso di fine recupero implementato è
   pulsanti -30s/+30s, slider per la durata di default (max 3 minuti),
   avviso visivo a scadenza.
 - **Fine allenamento**: salva la sessione nello storico con data
-  esatta e aggiorna i pesi di riferimento della scheda con l'ultimo
-  peso usato in ciascun esercizio.
+  esatta, aggiorna i pesi di riferimento della scheda con l'ultimo
+  peso usato in ciascun esercizio, e mostra un **badge celebrativo**
+  se in questa sessione è stato battuto un Record Personale.
+
+### Nuove funzionalità
+
+- **Record Personali (PR)** (`views/pr_view.py`, `pr_manager.py`):
+  analizza automaticamente l'intero storico e mostra, per ogni
+  esercizio, il peso massimo mai sollevato, le ripetizioni massime, il
+  massimale stimato (1RM, formula di Epley) e il volume massimo in una
+  singola sessione — ognuno con la data in cui è stato raggiunto.
+  A fine allenamento, se hai battuto un record, un dialog te lo segnala
+  subito.
+- **Grafici dei progressi** (`views/progress_view.py`): scegli un
+  esercizio da un menu a tendina e visualizza due grafici — andamento
+  del peso massimo per sessione e del volume totale — per monitorare
+  il sovraccarico progressivo nel tempo.
+- **Calcolatore piastre** (`views/plates_view.py`,
+  `plates_calculator.py`): inserisci il peso totale da sollevare (e
+  opzionalmente il peso del bilanciere, di default 20 kg) e ottieni
+  subito la combinazione esatta di dischi da caricare su ciascun lato,
+  con il set standard 25/20/15/10/5/2.5/1.25 kg.
+- **Backup dati** (`views/backup_view.py`): esporta tutta la scheda e
+  lo storico in un file JSON (tramite selezione file nativa o copia
+  testo), e importali di nuovo — anche su un altro dispositivo — con
+  scelta tra "sostituisci" o "unisci allo storico esistente". È sempre
+  disponibile anche la modalità copia/incolla manuale del JSON, per i
+  dispositivi dove il file picker nativo non fosse disponibile.
 
 Tutto il codice è stato verificato con: compilazione sintattica di ogni
 modulo, uno smoke test che percorre l'intero flusso applicativo
-(creazione scheda → selezione → allenamento → timer → salvataggio →
-verifica del JSON su disco) e un avvio reale del server Flet in
-modalità web per controllare che non ci siano eccezioni a runtime.
+(creazione scheda → selezione → allenamento → serie completate →
+rilevamento PR → salvataggio → verifica del JSON su disco) e
+l'apertura di tutte le nuove schermate (PR, Grafici, Piastre, Backup)
+senza eccezioni a runtime.

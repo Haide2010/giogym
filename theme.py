@@ -20,6 +20,9 @@ DANGER = ft.Colors.RED_400            # eliminazione / errori
 TEXT = ft.Colors.WHITE
 TEXT_MUTED = ft.Colors.GREY_400
 BORDER = ft.Colors.GREY_700
+CARD_BG = BG_CARD                     # alias usato in alcune viste (storico/calendario)
+GOLD = ft.Colors.AMBER_400            # colore badge Record Personale (PR)
+INFO = ft.Colors.LIGHT_BLUE_400       # colore info/accento secondario
 
 # --- Dimensioni / raggi ---
 RADIUS = 14

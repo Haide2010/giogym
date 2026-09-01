@@ -235,3 +235,8 @@ class SchemaEditorView:
         self.app.data["scheda"]["giorni"] = self.giorni
         self.app.save()
         self.app.show_home()
+        
+def build_schema_view(app) -> ft.Control:
+    """Funzione helper per compatibilità con il router principale."""
+    editor = SchemaEditorView(app)
+    return editor.build()

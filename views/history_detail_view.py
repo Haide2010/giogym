@@ -75,6 +75,14 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
         else:
             app.show_home()
 
+    def modifica_allenamento(e):
+        """Apre l'allenamento in modalità modifica, con tutto lo stato
+        già selezionato (pesi, reps, spunte, note), per poi sovrascriverlo."""
+        if hasattr(app, "show_training_edit"):
+            app.show_training_edit(sessione)
+        else:
+            app.show_home()
+
     header = ft.Row(
         [
             ft.Row(
@@ -95,6 +103,12 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
             ),
             ft.Row(
                 [
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        icon_color=theme.INFO,
+                        tooltip="Modifica allenamento",
+                        on_click=modifica_allenamento,
+                    ),
                     ft.IconButton(
                         icon=ft.Icons.PLAY_ARROW_ROUNDED,
                         icon_color=theme.PRIMARY,
@@ -167,8 +181,77 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
             ft.Text("Nessun esercizio registrato per questa sessione.", color=theme.TEXT_MUTED)
         )
 
+    # --- Sezione extra: foto, valutazione a manubri, nota generale ---
+    extra_controls = []
+
+    foto_path = sessione.get("foto", "")
+    if foto_path:
+        try:
+            extra_controls.append(
+                ft.Container(
+                    content=ft.Image(src=foto_path, fit=ft.ImageFit.COVER, height=200, border_radius=theme.RADIUS),
+                    margin=ft.margin.only(bottom=10),
+                )
+            )
+        except Exception:
+            pass
+
+    valutazione = sessione.get("valutazione", 0) or 0
+    if valutazione:
+        manubri = ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.FITNESS_CENTER,
+                    color=theme.PRIMARY if i <= int(valutazione) else theme.TEXT_MUTED,
+                    size=22,
+                )
+                for i in range(1, 6)
+            ],
+            spacing=2,
+        )
+        extra_controls.append(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.STAR, color=theme.GOLD, size=18),
+                                ft.Text("Valutazione:", size=13, color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                            ],
+                            spacing=6,
+                        ),
+                        manubri,
+                        ft.Text(f"{int(valutazione)}/5", size=12, color=theme.TEXT_MUTED),
+                    ],
+                    spacing=10,
+                ),
+                margin=ft.margin.only(bottom=10),
+            )
+        )
+
+    nota_generale = sessione.get("note_generali", "")
+    if nota_generale:
+        extra_controls.append(
+            theme.card_container(
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.NOTES, color=theme.INFO, size=18),
+                                ft.Text("Nota della sessione", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                            ],
+                            spacing=6,
+                        ),
+                        ft.Text(nota_generale, size=13, color=theme.TEXT),
+                    ],
+                    spacing=8,
+                ),
+                margin=ft.margin.only(bottom=10),
+            )
+        )
+
     content_list = ft.ListView(
-        controls=esercizio_controls,
+        controls=extra_controls + esercizio_controls,
         expand=True,
         spacing=0,
     )

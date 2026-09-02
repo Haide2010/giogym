@@ -122,7 +122,7 @@ def build_progress_view(app) -> ft.Control:
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.TRENDING_UP if delta_peso >= 0 else ft.Icons.TRENDING_DOWN,
-                                 size=16, color=delta_color),
+                               size=16, color=delta_color),
                         ft.Text(delta_str, size=13, weight=ft.FontWeight.BOLD, color=delta_color),
                     ],
                     spacing=4,

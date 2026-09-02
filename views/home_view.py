@@ -214,7 +214,7 @@ def _history_card(app, sessione: dict) -> ft.Control:
 
 
 def build_home_view(app) -> ft.Control:
-    """Costruisce la schermata Home con storico, calendario, box Accesso rapido, impostazioni e tasto Inizia."""
+    """Costruisce la schermata Home con statistiche, avviso scadenza, storico, calendario, box Accesso rapido e tasto Inizia."""
 
     # 1. Intestazione con titolo a sinistra e tasto impostazioni a destra
     header = ft.Row(
@@ -235,6 +235,84 @@ def build_home_view(app) -> ft.Control:
             ),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    )
+
+    # --- Blocco Statistiche e Avviso Scadenza ---
+    storico_list = app.data.get("storico", [])
+    tot_allenamenti = len(storico_list)
+    
+    # Calcolo approssimativo delle ore di ferro (assumendo una media di 50 minuti o basandosi sulla durata se salvata)
+    minuti_totali = 0
+    for s in storico_list:
+        durata_str = s.get("durata", "")
+        # Parsing semplice se presente es. "1h 12m" o "45m"
+        try:
+            h = 0
+            m = 0
+            if "h" in durata_str:
+                parts = durata_str.split("h")
+                h = int(parts[0].strip())
+                rest = parts[1].replace("m", "").strip()
+                if rest:
+                    m = int(rest)
+            elif "m" in durata_str:
+                m = int(durata_str.replace("m", "").replace("s", "").split()[0])
+            minuti_totali += (h * 60) + m
+        except Exception:
+            minuti_totali += 55 # stima di fallback se il formato varia
+
+    ore_ferro = round(minuti_totali / 60, 1)
+
+    # Calcolo media settimanale approssimativa (basata sulle settimane dall'inizio dell'anno o storico)
+    media_settimanale = round(tot_allenamenti / max(1, (datetime.now().date() - date(2026, 1, 1)).days // 7), 1)
+
+    stat_card = ft.Container(
+        content=ft.Row(
+            [
+                ft.Column([
+                    ft.Text(str(tot_allenamenti), size=18, weight=ft.FontWeight.BOLD, color=theme.PRIMARY),
+                    ft.Text("Workout", size=10, color=theme.TEXT_MUTED),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+                ft.VerticalDivider(width=1, color=theme.BORDER),
+                ft.Column([
+                    
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+                ft.VerticalDivider(width=1, color=theme.BORDER),
+                ft.Column([
+                    ft.Text(str(media_settimanale), size=18, weight=ft.FontWeight.BOLD, color=theme.PRIMARY),
+                    ft.Text("Media/sett.", size=10, color=theme.TEXT_MUTED),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+        ),
+        padding=10,
+        bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
+        border_radius=12,
+        border=ft.border.all(1, theme.BORDER),
+    )
+
+    # Avviso Scadenza Scheda (simulato o basato su una data di scadenza configurabile, es. 30 giorni dall'ultima modifica o fissa)
+    # Mostriamo un avviso dinamico se l'ultimo allenamento risale a un po' o come promemoria generale della scheda attiva
+    avviso_scadenza = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.WARNING_AMBER_ROUNDED, color=theme.WARNING, size=20),
+                ft.Text("La scheda attiva è in corso di validità. Monitora i carichi!", size=12, color=theme.TEXT, expand=True),
+            ],
+            spacing=8,
+        ),
+        padding=10,
+        bgcolor=theme.BG_CARD_LIGHT if hasattr(theme, "BG_CARD_LIGHT") else "#2a2a2a",
+        border_radius=10,
+        border=ft.border.all(1, theme.WARNING),
+    )
+
+    stats_and_warning_section = ft.Column(
+        [
+            stat_card,
+            avviso_scadenza,
+        ],
+        spacing=8,
     )
 
     # 2. Storico
@@ -293,13 +371,13 @@ def build_home_view(app) -> ft.Control:
     quick_actions_grid = ft.Row(
         [
             _quick_action(ft.Icons.VIEW_LIST, "Scheda", "Modifica giorni/esercizi", theme.PRIMARY,
-                          lambda e: app.show_schema_editor()),
+                        lambda e: app.show_schema_editor()),
             _quick_action(ft.Icons.EMOJI_EVENTS, "Record (PR)", "I tuoi massimali", getattr(theme, "GOLD", "#FFD700"),
-                          lambda e: app.show_pr()),
+                        lambda e: app.show_pr()),
             _quick_action(ft.Icons.SHOW_CHART, "Grafici", "Andamento progressi", getattr(theme, "INFO", "#2196F3"),
-                          lambda e: app.show_progress()),
+                        lambda e: app.show_progress()),
             _quick_action(ft.Icons.BACKUP, "Backup", "Esporta/importa dati", getattr(theme, "SUCCESS", "#4CAF50"),
-                          lambda e: app.show_backup()),
+                        lambda e: app.show_backup()),
         ],
         spacing=10,
         scroll=ft.ScrollMode.AUTO,
@@ -337,6 +415,8 @@ def build_home_view(app) -> ft.Control:
     main_content = ft.ListView(
         [
             header,
+            ft.Divider(color=theme.BORDER, height=15),
+            stats_and_warning_section,
             ft.Divider(color=theme.BORDER, height=15),
             ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
             *history_controls,

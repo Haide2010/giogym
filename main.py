@@ -19,6 +19,7 @@ from views.pr_view import build_pr_view
 from views.progress_view import build_progress_view
 from views.backup_view import build_backup_view
 from views.settings_view import build_settings_view
+from views.workout_summary_view import build_workout_summary_view
 
 
 class GioGymApp:
@@ -62,8 +63,26 @@ class GioGymApp:
         view = build_training_view(self, giorno_selezionato)
         self._set_content(view)
 
+    def show_training_edit(self, sessione: dict):
+        """Apre la schermata di allenamento in modalità MODIFICA per
+        sovrascrivere una sessione passata, ricaricandone lo stato."""
+        storico = self.data.get("storico", [])
+        edit_index = None
+        for idx, s in enumerate(storico):
+            if s is sessione or (s.get("data") == sessione.get("data")
+                                 and s.get("giorno_nome") == sessione.get("giorno_nome")):
+                edit_index = idx
+                break
+        view = build_training_view(self, None, edit_session=sessione, edit_index=edit_index)
+        self._set_content(view)
+
     def show_history_detail(self, sessione: dict):
         view = build_history_detail_view(self, sessione)
+        self._set_content(view)
+
+    def show_workout_summary(self, sessione: dict, nuovi_pr: list, modify_index: int = None):
+        """Riepilogo a fine allenamento (foto, manubri, note) prima di salvare."""
+        view = build_workout_summary_view(self, sessione, nuovi_pr, modify_index=modify_index)
         self._set_content(view)
 
     def show_pr(self):

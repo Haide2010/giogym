@@ -35,10 +35,12 @@ SUBTITLE_SIZE = 16
 BODY_SIZE = 14
 
 
-def page_theme() -> ft.Theme:
-    """Ritorna il tema Material scuro personalizzato per la Page di Flet."""
+def page_theme(seed_color: str = None) -> ft.Theme:
+    """Ritorna il tema Material scuro personalizzato per la Page di Flet.
+    Se seed_color è indicato, usa quello al posto di PRIMARY (utile per
+    rigenerare il tema quando l'utente cambia colore nelle Impostazioni)."""
     return ft.Theme(
-        color_scheme_seed=PRIMARY,
+        color_scheme_seed=seed_color or PRIMARY,
         font_family="Roboto",
     )
 

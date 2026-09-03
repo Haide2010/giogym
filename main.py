@@ -19,7 +19,7 @@ from views.pr_view import build_pr_view
 from views.progress_view import build_progress_view
 from views.backup_view import build_backup_view
 from views.settings_view import build_settings_view
-from views.workout_summary_view import build_workout_summary_view
+from views.exercise_history_view import build_exercise_history_view
 
 
 class GioGymApp:
@@ -27,18 +27,33 @@ class GioGymApp:
         self.page = page
         self.page.title = "GioGym"
         self.page.theme_mode = ft.ThemeMode.DARK
-        self.page.theme = theme.page_theme() if hasattr(theme, "page_theme") else None
         self.page.padding = 16
 
         # Caricamento dati
         self.data = data_manager.load_data()
 
-        # Ripristino del colore tema salvato in precedenza (se esiste)
+        # Ripristino del colore tema salvato in precedenza (se esiste) e
+        # applicazione coerente sia alla palette (theme.PRIMARY) sia al
+        # tema Material della pagina (page.theme), così l'intera UI
+        # (non solo i singoli controlli) riflette il colore scelto.
         primary_color = self.data.get("primary_color")
-        if primary_color:
-            theme.PRIMARY = primary_color
+        self.apply_theme(primary_color or theme.PRIMARY)
 
         # Schermata iniziale
+        self.show_home()
+
+    def apply_theme(self, color: str):
+        """Applica un colore primario in modo coerente a tutta l'app:
+        aggiorna la costante usata dalle viste (theme.PRIMARY) e
+        rigenera il tema Material della pagina (color_scheme_seed)."""
+        theme.PRIMARY = color
+        self.page.theme = theme.page_theme(color)
+
+    def refresh_theme_and_reload(self):
+        """Da chiamare dopo un cambio colore nelle Impostazioni: applica
+        il nuovo tema e ricostruisce la Home per mostrare subito il
+        risultato ovunque."""
+        self.apply_theme(self.data.get("primary_color", theme.PRIMARY))
         self.show_home()
 
     def _set_content(self, view_control: ft.Control):
@@ -63,26 +78,8 @@ class GioGymApp:
         view = build_training_view(self, giorno_selezionato)
         self._set_content(view)
 
-    def show_training_edit(self, sessione: dict):
-        """Apre la schermata di allenamento in modalità MODIFICA per
-        sovrascrivere una sessione passata, ricaricandone lo stato."""
-        storico = self.data.get("storico", [])
-        edit_index = None
-        for idx, s in enumerate(storico):
-            if s is sessione or (s.get("data") == sessione.get("data")
-                                 and s.get("giorno_nome") == sessione.get("giorno_nome")):
-                edit_index = idx
-                break
-        view = build_training_view(self, None, edit_session=sessione, edit_index=edit_index)
-        self._set_content(view)
-
     def show_history_detail(self, sessione: dict):
         view = build_history_detail_view(self, sessione)
-        self._set_content(view)
-
-    def show_workout_summary(self, sessione: dict, nuovi_pr: list, modify_index: int = None):
-        """Riepilogo a fine allenamento (foto, manubri, note) prima di salvare."""
-        view = build_workout_summary_view(self, sessione, nuovi_pr, modify_index=modify_index)
         self._set_content(view)
 
     def show_pr(self):
@@ -105,17 +102,11 @@ class GioGymApp:
         view = build_settings_view(self)
         self._set_content(view)
 
-    def show_plates(self):
-        """Schermata Calcolatore Piastre."""
-        try:
-            from views.plates_view import build_plates_view
-            view = build_plates_view(self)
-            self._set_content(view)
-        except ImportError:
-            # Fallback temporaneo se il file plates_view.py non è stato ancora creato
-            self.page.snack_bar = ft.SnackBar(ft.Text("Sezione Calcolatore Piastre in arrivo!"))
-            self.page.snack_bar.open = True
-            self.page.update()
+    def show_exercise_history(self, nome_esercizio: str, origine: str = "pr"):
+        """Schermata di cronologia dettagliata (riga per riga) per un
+        singolo esercizio, raggiungibile da PR e Grafici."""
+        view = build_exercise_history_view(self, nome_esercizio, origine)
+        self._set_content(view)
 
     def save(self):
         """Salva i dati tramite il data_manager."""

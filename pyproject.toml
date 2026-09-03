@@ -1,0 +1,10 @@
+[tool.flet]
+name = "GioGym"
+producer = "GioGym"
+description = "App per tracciare gli allenamenti in palestra"
+version = "1.0.0"
+platform = ["android"]
+
+[tool.flet.android]
+# Sfondo dell'icona adaptive, coerente col tema scuro dell'app.
+adaptive_icon_background = "#0B0F19"

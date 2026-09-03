@@ -11,7 +11,7 @@ import theme
 import pr_manager
 
 
-def _pr_card(app, nome_esercizio: str, record: dict) -> ft.Control:
+def _pr_card(nome_esercizio: str, record: dict) -> ft.Control:
     def _riga(icona, etichetta, valore, data, colore):
         if not data:
             return ft.Container()
@@ -42,14 +42,6 @@ def _pr_card(app, nome_esercizio: str, record: dict) -> ft.Control:
         _riga(ft.Icons.STACKED_BAR_CHART, "Volume in una sessione", f"{record['max_volume']} kg", record["max_volume_data"], theme.INFO),
     ]
 
-    cronologia_btn = ft.TextButton(
-        content=ft.Row(
-            [ft.Icon(ft.Icons.HISTORY, size=15, color=theme.INFO), ft.Text("Vedi cronologia completa", size=12, color=theme.INFO)],
-            spacing=6,
-        ),
-        on_click=lambda e, nome=nome_esercizio: app.show_exercise_history(nome, "pr"),
-    )
-
     return theme.card_container(
         ft.Column(
             [
@@ -62,7 +54,6 @@ def _pr_card(app, nome_esercizio: str, record: dict) -> ft.Control:
                 ),
                 ft.Divider(color=theme.BORDER, height=10),
                 ft.Column(righe, spacing=8),
-                cronologia_btn,
             ],
             spacing=6,
         ),
@@ -107,7 +98,7 @@ def build_pr_view(app) -> ft.Control:
         )
         content_list = ft.ListView([header, ft.Divider(color=theme.BORDER, height=15), body], expand=True, spacing=10)
     else:
-        cards = [_pr_card(app, nome, record) for nome, record in sorted(prs.items())]
+        cards = [_pr_card(nome, record) for nome, record in sorted(prs.items())]
         content_list = ft.ListView(
             [
                 header,

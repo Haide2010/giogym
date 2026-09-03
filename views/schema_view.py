@@ -2,20 +2,15 @@
 schema_view.py
 ---------------
 Editor della scheda di allenamento.
-Non è una delle schermate esplicitamente elencate nelle specifiche, ma è
-indispensabile: senza un modo per configurare giorni/esercizi l'app non
-avrebbe dati su cui lavorare. Si raggiunge dall'icona ingranaggio in Home.
-
 Permette di:
-- aggiungere/rimuovere/riordinare giorni (da 1 a 7), duplicarli
-- rinominare ogni giorno e aggiungere una nota libera (es. "scarico")
-- aggiungere/rimuovere/riordinare esercizi per ogni giorno
-- impostare nome, serie, ripetizioni target, peso di riferimento e
-  tempo di recupero specifico per ciascun esercizio
+- aggiungere, rimuovere e riordinare i giorni
+- inserire note giornaliere e duplicare un giorno
+- aggiungere, rimuovere e riordinare gli esercizi
+- impostare nome, serie, ripetizioni, peso di riferimento e link foto/tutorial
 """
 
 import copy
-
+from datetime import datetime
 import flet as ft
 import theme
 import data_manager as dm
@@ -31,22 +26,10 @@ class SchemaEditorView:
     def __init__(self, app):
         self.app = app
         self.page = app.page
-        # Copia di lavoro (evita di modificare app.data finché non si salva)
-        self.giorni = copy.deepcopy(app.data["scheda"]["giorni"])
-        # Compatibilità: garantisce che ogni giorno/esercizio abbia i
-        # nuovi campi anche se la scheda è stata creata con una
-        # versione precedente dell'app.
-        for g in self.giorni:
-            g.setdefault("note", "")
-            for ex in g.get("esercizi", []):
-                ex.setdefault("rest_seconds", 90)
-
+        self.giorni = copy.deepcopy(app.data["scheda"].get("giorni", []))
         self.giorni_column = ft.Column(spacing=14)
         self.info_text = ft.Text("", color=theme.DANGER, size=12)
 
-    # ------------------------------------------------------------------
-    # Costruzione UI
-    # ------------------------------------------------------------------
     def build(self) -> ft.Control:
         header = ft.Row(
             [
@@ -86,9 +69,6 @@ class SchemaEditorView:
             scroll=ft.ScrollMode.AUTO,
         )
 
-    # ------------------------------------------------------------------
-    # Rendering dinamico dei giorni/esercizi
-    # ------------------------------------------------------------------
     def _refresh_giorni_column(self):
         self.giorni_column.controls.clear()
         for g_idx, giorno in enumerate(self.giorni):
@@ -97,167 +77,190 @@ class SchemaEditorView:
             self.page.update()
 
     def _build_giorno_card(self, g_idx: int, giorno: dict) -> ft.Control:
+        nome_giorno = giorno.get("nome", f"Giorno {g_idx + 1}")
+        n_esercizi = len(giorno.get("esercizi", []))
+        nota = giorno.get("nota_giorno", "")
+
+        # Modifica nome dentro l'area espansa
         nome_field = ft.TextField(
-            value=giorno.get("nome", f"Giorno {g_idx + 1}"),
+            value=nome_giorno,
             label="Nome giorno",
             dense=True,
             expand=True,
-            on_change=lambda e, i=g_idx: self._set_giorno_nome(i, e.control.value),
+            on_change=lambda e, i=g_idx: self._set_giorno_campo(i, "nome", e.control.value),
         )
 
-        note_field = ft.TextField(
-            value=giorno.get("note", ""),
-            label="Nota (facoltativa, es. \"scarico -20%\")",
+        nota_field = ft.TextField(
+            value=nota,
+            label="Note giorno (es. scarico, focus...)",
             dense=True,
             text_size=12,
-            on_change=lambda e, i=g_idx: self._set_giorno_nota(i, e.control.value),
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+            on_change=lambda e, i=g_idx: self._set_giorno_campo(i, "nota_giorno", e.control.value),
         )
 
+        # Esercizi come card separate
         esercizi_rows = ft.Column(spacing=8)
-        n_esercizi = len(giorno.get("esercizi", []))
+        tot_es = len(giorno.get("esercizi", []))
         for e_idx, esercizio in enumerate(giorno.get("esercizi", [])):
-            esercizi_rows.controls.append(self._build_esercizio_row(g_idx, e_idx, esercizio, n_esercizi))
+            esercizi_rows.controls.append(self._build_esercizio_row(g_idx, e_idx, esercizio, tot_es))
 
-        add_ex_btn = ft.TextButton(
+        add_ex_btn = ft.OutlinedButton(
             "Aggiungi esercizio",
             icon=ft.Icons.ADD_CIRCLE_OUTLINE,
             on_click=lambda e, i=g_idx: self._add_esercizio(i),
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_SMALL),
+            ),
         )
 
-        n_giorni = len(self.giorni)
-        sposta_su_btn = ft.IconButton(
-            icon=ft.Icons.ARROW_UPWARD,
-            icon_size=18,
-            icon_color=theme.TEXT_MUTED if g_idx > 0 else theme.BORDER,
-            tooltip="Sposta su",
-            disabled=(g_idx == 0),
-            on_click=lambda e, i=g_idx: self._sposta_giorno(i, -1),
-        )
-        sposta_giu_btn = ft.IconButton(
-            icon=ft.Icons.ARROW_DOWNWARD,
-            icon_size=18,
-            icon_color=theme.TEXT_MUTED if g_idx < n_giorni - 1 else theme.BORDER,
-            tooltip="Sposta giù",
-            disabled=(g_idx == n_giorni - 1),
-            on_click=lambda e, i=g_idx: self._sposta_giorno(i, 1),
-        )
-        duplica_btn = ft.IconButton(
-            icon=ft.Icons.CONTENT_COPY,
-            icon_size=18,
-            icon_color=theme.INFO if hasattr(theme, "INFO") else theme.PRIMARY,
-            tooltip="Duplica giorno",
-            on_click=lambda e, i=g_idx: self._duplica_giorno(i),
-        )
-        delete_day_btn = ft.IconButton(
-            icon=ft.Icons.DELETE_OUTLINE,
-            icon_size=18,
-            icon_color=theme.DANGER,
-            tooltip="Elimina giorno",
-            on_click=lambda e, i=g_idx: self._remove_giorno(i),
-        )
-
-        toolbar = ft.Row(
-            [sposta_su_btn, sposta_giu_btn, duplica_btn, ft.Container(expand=True), delete_day_btn],
-            spacing=0,
+        # Corpo del giorno (contenuto espandibile)
+        body = ft.Column(
+            [
+                nome_field,
+                nota_field,
+                ft.Divider(color=theme.BORDER, height=6),
+                esercizi_rows,
+                add_ex_btn,
+                ft.Row(
+                    [
+                        ft.IconButton(ft.Icons.ARROW_UPWARD, icon_size=18, tooltip="Sposta su",
+                                      on_click=lambda e, i=g_idx: self._sposta_giorno(i, -1), disabled=g_idx == 0),
+                        ft.IconButton(ft.Icons.ARROW_DOWNWARD, icon_size=18, tooltip="Sposta giù",
+                                      on_click=lambda e, i=g_idx: self._sposta_giorno(i, 1),
+                                      disabled=g_idx == len(self.giorni) - 1),
+                        ft.IconButton(ft.Icons.COPY, icon_size=18, tooltip="Duplica giorno",
+                                      on_click=lambda e, i=g_idx: self._duplica_giorno(i)),
+                        ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=theme.DANGER, icon_size=18,
+                                      tooltip="Elimina giorno",
+                                      on_click=lambda e, i=g_idx: self._remove_giorno(i)),
+                    ],
+                    spacing=0,
+                    alignment=ft.MainAxisAlignment.END,
+                ),
+            ],
+            spacing=8,
         )
 
         return theme.card_container(
-            ft.Column(
-                [
-                    toolbar,
-                    nome_field,
-                    note_field,
-                    ft.Divider(color=theme.BORDER, height=6),
-                    esercizi_rows,
-                    add_ex_btn,
-                ],
-                spacing=10,
+            ft.ExpansionTile(
+                leading=ft.Container(
+                    content=ft.Text(str(g_idx + 1), size=14, weight=ft.FontWeight.BOLD, color="white"),
+                    alignment=ft.alignment.center,
+                    width=32, height=32,
+                    bgcolor=theme.PRIMARY,
+                    border_radius=16,
+                ),
+                title=ft.Text(nome_giorno, size=theme.SUBTITLE_SIZE,
+                              weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                subtitle=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.FITNESS_CENTER, size=14, color=theme.TEXT_MUTED),
+                        ft.Text(f"{n_esercizi} esercizi"
+                                + (f" · {nota[:28]}{'…' if len(nota) > 28 else ''}" if nota else ""),
+                                size=12, color=theme.TEXT_MUTED),
+                    ],
+                    spacing=4,
+                ),
+                controls=[body],
+                controls_padding=ft.padding.only(top=12),
+                collapsed_bgcolor=ft.Colors.with_opacity(0.0, theme.BG_CARD),
+                bgcolor=ft.Colors.with_opacity(0.0, theme.BG_CARD),
+                shape=ft.RoundedRectangleBorder(radius=theme.RADIUS),
+                collapsed_shape=ft.RoundedRectangleBorder(radius=theme.RADIUS),
+                tile_padding=ft.padding.symmetric(horizontal=8, vertical=6),
+                maintain_state=True,
             ),
-            bgcolor=theme.BG_CARD,
+            padding=6,
         )
 
-    def _build_esercizio_row(self, g_idx: int, e_idx: int, esercizio: dict, n_esercizi: int) -> ft.Control:
+    def _build_esercizio_row(self, g_idx: int, e_idx: int, esercizio: dict, tot_esercizi: int) -> ft.Control:
         nome = ft.TextField(
             value=esercizio.get("nome", ""),
             label="Esercizio",
             dense=True,
-            expand=2,
-            on_change=lambda e, gi=g_idx, ei=e_idx: self._set_esercizio_campo(gi, ei, "nome", e.control.value),
+            on_change=lambda e: self._set_esercizio_campo(g_idx, e_idx, "nome", e.control.value),
         )
         serie = ft.TextField(
             value=str(esercizio.get("serie", 3)),
             label="Serie",
             dense=True,
-            expand=1,
+            width=64,
             keyboard_type=ft.KeyboardType.NUMBER,
-            on_change=lambda e, gi=g_idx, ei=e_idx: self._set_esercizio_campo(
-                gi, ei, "serie", self._to_int(e.control.value, 3)
-            ),
+            on_change=lambda e: self._set_esercizio_campo(g_idx, e_idx, "serie", self._to_int(e.control.value, 3)),
         )
         ripetizioni = ft.TextField(
             value=str(esercizio.get("ripetizioni", "8-12")),
             label="Reps",
             dense=True,
-            expand=1,
-            on_change=lambda e, gi=g_idx, ei=e_idx: self._set_esercizio_campo(gi, ei, "ripetizioni", e.control.value),
+            width=72,
+            on_change=lambda e: self._set_esercizio_campo(g_idx, e_idx, "ripetizioni", e.control.value),
         )
         peso = ft.TextField(
             value=str(esercizio.get("peso_riferimento", 0)),
             label="Kg",
             dense=True,
-            expand=1,
+            width=64,
             keyboard_type=ft.KeyboardType.NUMBER,
-            on_change=lambda e, gi=g_idx, ei=e_idx: self._set_esercizio_campo(
-                gi, ei, "peso_riferimento", self._to_float(e.control.value, 0)
-            ),
+            on_change=lambda e: self._set_esercizio_campo(g_idx, e_idx, "peso_riferimento", self._to_float(e.control.value, 0)),
         )
-        recupero = ft.TextField(
-            value=str(esercizio.get("rest_seconds", 90)),
-            label="Recupero (s)",
+        foto = ft.TextField(
+            value=esercizio.get("url_foto", ""),
+            label="Link Foto/Video (opzionale)",
             dense=True,
-            expand=1,
-            tooltip="Tempo di recupero specifico per questo esercizio, usato dal Rest Timer",
-            keyboard_type=ft.KeyboardType.NUMBER,
-            on_change=lambda e, gi=g_idx, ei=e_idx: self._set_esercizio_campo(
-                gi, ei, "rest_seconds", self._to_int(e.control.value, 90)
-            ),
+            text_size=11,
+            on_change=lambda e: self._set_esercizio_campo(g_idx, e_idx, "url_foto", e.control.value),
         )
 
-        su_btn = ft.IconButton(
-            icon=ft.Icons.ARROW_UPWARD,
-            icon_size=14,
-            icon_color=theme.TEXT_MUTED if e_idx > 0 else theme.BORDER,
-            tooltip="Sposta su",
-            disabled=(e_idx == 0),
-            on_click=lambda e, gi=g_idx, ei=e_idx: self._sposta_esercizio(gi, ei, -1),
-        )
-        giu_btn = ft.IconButton(
-            icon=ft.Icons.ARROW_DOWNWARD,
-            icon_size=14,
-            icon_color=theme.TEXT_MUTED if e_idx < n_esercizi - 1 else theme.BORDER,
-            tooltip="Sposta giù",
-            disabled=(e_idx == n_esercizi - 1),
-            on_click=lambda e, gi=g_idx, ei=e_idx: self._sposta_esercizio(gi, ei, 1),
-        )
-        delete_btn = ft.IconButton(
-            icon=ft.Icons.CLOSE,
-            icon_color=theme.TEXT_MUTED,
-            icon_size=16,
-            tooltip="Rimuovi esercizio",
-            on_click=lambda e, gi=g_idx, ei=e_idx: self._remove_esercizio(gi, ei),
-        )
-
-        return ft.Column(
+        controlli = ft.Row(
             [
-                ft.Row([nome, serie, ripetizioni], spacing=6),
-                ft.Row([peso, recupero, su_btn, giu_btn, delete_btn], spacing=2),
+                ft.IconButton(ft.Icons.ARROW_UPWARD, icon_color=theme.TEXT_MUTED, icon_size=16,
+                              tooltip="Sposta esercizio su",
+                              on_click=lambda e: self._sposta_esercizio(g_idx, e_idx, -1), disabled=e_idx == 0),
+                ft.IconButton(ft.Icons.ARROW_DOWNWARD, icon_color=theme.TEXT_MUTED, icon_size=16,
+                              tooltip="Sposta esercizio giù",
+                              on_click=lambda e: self._sposta_esercizio(g_idx, e_idx, 1),
+                              disabled=e_idx == tot_esercizi - 1),
+                ft.IconButton(ft.Icons.CLOSE, icon_color=theme.DANGER, icon_size=18,
+                              tooltip="Rimuovi esercizio",
+                              on_click=lambda e: self._remove_esercizio(g_idx, e_idx)),
             ],
-            spacing=4,
+            spacing=0,
         )
 
-    # ------------------------------------------------------------------
-    # Utility di conversione sicura
-    # ------------------------------------------------------------------
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Text(str(e_idx + 1), size=12, weight=ft.FontWeight.BOLD,
+                                                color=theme.PRIMARY),
+                                alignment=ft.alignment.center,
+                                width=26, height=26, bgcolor=theme.BG_CARD_LIGHT, border_radius=8,
+                            ),
+                            nome,
+                        ],
+                        spacing=8,
+                    ),
+                    ft.Row(
+                        [
+                            ft.Row([serie, ripetizioni, peso], spacing=6),
+                            controlli,
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        spacing=6,
+                    ),
+                    foto,
+                ],
+                spacing=6,
+            ),
+            padding=10,
+            bgcolor=theme.BG_CARD_LIGHT,
+            border_radius=theme.RADIUS_SMALL,
+        )
+
     @staticmethod
     def _to_int(value, default):
         try:
@@ -268,18 +271,12 @@ class SchemaEditorView:
     @staticmethod
     def _to_float(value, default):
         try:
-            return round(float(value), 2)
+            return round(float(str(value).replace(",", ".")), 2)
         except (ValueError, TypeError):
             return default
 
-    # ------------------------------------------------------------------
-    # Handler di modifica dati (in memoria, sulla copia locale)
-    # ------------------------------------------------------------------
-    def _set_giorno_nome(self, g_idx, value):
-        self.giorni[g_idx]["nome"] = value
-
-    def _set_giorno_nota(self, g_idx, value):
-        self.giorni[g_idx]["note"] = value
+    def _set_giorno_campo(self, g_idx, campo, value):
+        self.giorni[g_idx][campo] = value
 
     def _set_esercizio_campo(self, g_idx, e_idx, campo, value):
         self.giorni[g_idx]["esercizi"][e_idx][campo] = value
@@ -290,62 +287,69 @@ class SchemaEditorView:
             self.page.update()
             return
         self.info_text.value = ""
-        self.giorni.append(dm.new_giorno(f"Giorno {len(self.giorni) + 1}"))
+        self.giorni.append({
+            "nome": f"Giorno {len(self.giorni) + 1}",
+            "nota_giorno": "",
+            "esercizi": []
+        })
         self._refresh_giorni_column()
+
+    def _remove_giorno(self, g_idx):
+        if len(self.giorni) <= 1:
+            self.info_text.value = "Devi mantenere almeno un giorno nella scheda."
+            self.page.update()
+            return
+        del self.giorni[g_idx]
+        self.info_text.value = ""
+        self._refresh_giorni_column()
+
+    def _sposta_giorno(self, g_idx, direzione):
+        if 0 <= g_idx + direzione < len(self.giorni):
+            self.giorni.insert(g_idx + direzione, self.giorni.pop(g_idx))
+            self._refresh_giorni_column()
 
     def _duplica_giorno(self, g_idx):
         if len(self.giorni) >= MAX_GIORNI:
             self.info_text.value = f"Puoi configurare al massimo {MAX_GIORNI} giorni."
             self.page.update()
             return
-        copia = copy.deepcopy(self.giorni[g_idx])
-        copia["nome"] = f'{copia.get("nome", "Giorno")} (copia)'
-        self.giorni.insert(g_idx + 1, copia)
-        self._refresh_giorni_column()
-
-    def _sposta_giorno(self, g_idx, delta):
-        nuovo_idx = g_idx + delta
-        if 0 <= nuovo_idx < len(self.giorni):
-            self.giorni[g_idx], self.giorni[nuovo_idx] = self.giorni[nuovo_idx], self.giorni[g_idx]
-            self._refresh_giorni_column()
-
-    def _remove_giorno(self, g_idx):
-        if len(self.giorni) <= 0:
-            return
-        del self.giorni[g_idx]
+        giorno_clonato = copy.deepcopy(self.giorni[g_idx])
+        giorno_clonato["nome"] += " (Copia)"
+        self.giorni.insert(g_idx + 1, giorno_clonato)
+        self.info_text.value = ""
         self._refresh_giorni_column()
 
     def _add_esercizio(self, g_idx):
-        self.giorni[g_idx]["esercizi"].append(dm.new_esercizio())
+        self.giorni[g_idx]["esercizi"].append({
+            "nome": "",
+            "serie": 3,
+            "ripetizioni": "8-12",
+            "peso_riferimento": 0,
+            "url_foto": ""
+        })
         self._refresh_giorni_column()
-
-    def _sposta_esercizio(self, g_idx, e_idx, delta):
-        esercizi = self.giorni[g_idx]["esercizi"]
-        nuovo_idx = e_idx + delta
-        if 0 <= nuovo_idx < len(esercizi):
-            esercizi[e_idx], esercizi[nuovo_idx] = esercizi[nuovo_idx], esercizi[e_idx]
-            self._refresh_giorni_column()
 
     def _remove_esercizio(self, g_idx, e_idx):
         del self.giorni[g_idx]["esercizi"][e_idx]
         self._refresh_giorni_column()
 
-    # ------------------------------------------------------------------
-    # Salvataggio
-    # ------------------------------------------------------------------
+    def _sposta_esercizio(self, g_idx, e_idx, direzione):
+        lista_ex = self.giorni[g_idx]["esercizi"]
+        if 0 <= e_idx + direzione < len(lista_ex):
+            lista_ex.insert(e_idx + direzione, lista_ex.pop(e_idx))
+            self._refresh_giorni_column()
+
     def _salva(self, e):
         if len(self.giorni) < MIN_GIORNI:
             self.info_text.value = "Devi configurare almeno 1 giorno."
             self.page.update()
             return
-        # Validazione minima: nomi esercizi non vuoti
+        
         for giorno in self.giorni:
             giorno["esercizi"] = [ex for ex in giorno["esercizi"] if ex.get("nome", "").strip()]
 
         self.app.data["scheda"]["giorni"] = self.giorni
-        # Traccia la data di ultimo aggiornamento scheda, usata dall'avviso
-        # "scheda da rivedere" in Home.
-        self.app.data["scheda"]["aggiornata_il"] = dm.today_str()
+        self.app.data["scheda"]["data_modifica"] = datetime.now().strftime("%Y-%m-%d")
         self.app.save()
         self.app.show_home()
 

@@ -208,39 +208,6 @@ class WorkoutSummaryView:
             wrap=True,
         )
 
-        stats_card = theme.card_container(
-            ft.Column(
-                [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.BAR_CHART, color=theme.PRIMARY, size=20),
-                            ft.Text("Le tue statistiche", size=theme.SUBTITLE_SIZE,
-                                    weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                        ],
-                        spacing=8,
-                    ),
-                    stats_grid,
-                    ft.Divider(color=theme.BORDER, height=10),
-                    ft.Row(
-                        [
-                            ft.Row([
-                                ft.Icon(ft.Icons.TIMER, color=theme.PRIMARY, size=18),
-                                ft.Text(f"Durata: {self.stats['durata']}", color=theme.TEXT, size=13),
-                            ], spacing=6),
-                            ft.Row([
-                                ft.Icon(ft.Icons.CHECK_CIRCLE, color=theme.SUCCESS, size=18),
-                                ft.Text(f"{self.stats['n_serie_completate']}/{self.stats['n_serie']} serie completate",
-                                        color=theme.TEXT, size=13),
-                            ], spacing=6),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                        wrap=True,
-                    ),
-                ],
-                spacing=10,
-            ),
-        )
-
         # --- Badge nuovi PR ---
         controls = []
         if self.nuovi_pr:
@@ -352,7 +319,59 @@ class WorkoutSummaryView:
             ),
         )
 
-        controls.extend([stats_card, foto_card, valutazione_card, nota_card])
+        controls.extend([foto_card, valutazione_card, nota_card])
+
+        # --- Condivisione rapida del workout (testo/emoji per WhatsApp) ---
+        share_text_label = ft.Text("", size=12)
+        self._share_status = ft.Text("", size=12)
+
+        biglietto = ft.Container(
+            content=ft.Column(
+                [
+                    ft.TextField(
+                        value=self._build_share_text(),
+                        label="Anteprima messaggio",
+                        multiline=True,
+                        min_lines=8,
+                        max_lines=14,
+                        read_only=True,
+                        border_color=theme.BORDER,
+                        text_size=12,
+                    ),
+                    ft.Row(
+                        [
+                            ft.ElevatedButton(
+                                content=ft.Row(
+                                    [ft.Icon(ft.Icons.SHARE, color="white"),
+                                     ft.Text("Copia per WhatsApp", weight=ft.FontWeight.BOLD)],
+                                    spacing=8,
+                                ),
+                                bgcolor=theme.SUCCESS,
+                                color="white",
+                                on_click=lambda e: self._copia_per_whatsapp(),
+                            ),
+                            ft.OutlinedButton(
+                                content=ft.Row(
+                                    [ft.Icon(ft.Icons.OPEN_IN_NEW, color=theme.TEXT),
+                                     ft.Text("Apri WhatsApp")],
+                                    spacing=8,
+                                ),
+                                on_click=lambda e: self._apri_whatsapp(),
+                            ),
+                        ],
+                        spacing=10,
+                        wrap=True,
+                    ),
+                    self._share_status,
+                ],
+                spacing=8,
+            ),
+            padding=12,
+            bgcolor=theme.BG_CARD_LIGHT,
+            border_radius=theme.RADIUS,
+            border=ft.border.all(1, theme.BORDER),
+        )
+        controls.append(biglietto)
 
         # --- Pulsante conferma ---
         confirm_btn = ft.ElevatedButton(
@@ -396,6 +415,62 @@ class WorkoutSummaryView:
 
     def _set_nota(self, value):
         self.nota_generale = value
+
+    # ------------------------------------------------------------------
+    # Condivisione rapida workout
+    # ------------------------------------------------------------------
+    def _build_share_text(self) -> str:
+        """Genera un messaggio formattato con emoji, volume e manubri,
+        pronto da incollare su WhatsApp/chat col coach."""
+        nome = self.stats.get("giorno_nome", "Allenamento")
+        data = self.stats.get("data", "")
+        durata = self.stats.get("durata", "-")
+        righe = [
+            f"🏋️ *{nome}* — {data}",
+            f"⏱ Durata: {durata}",
+            f"📋 Esercizi: {self.stats['n_esercizi']}",
+            f"🔁 Serie: {self.stats['n_serie']}  ·  ✔ Completate: {self.stats['n_serie_completate']}",
+            f"📈 Volume totale: {self.stats['volume']} kg",
+            f"💪 Reps totali: {self.stats['n_reps']}",
+        ]
+
+        if self.valutazione:
+            manubri_pieni = "🦍" * self.valutazione
+            manubri_vuoti = "⚪" * (5 - self.valutazione)
+            righe.append(f"⭐ Valutazione: {manubri_pieni}{manubri_vuoti} ({self.valutazione}/5)")
+
+        if self.nuovi_pr:
+            righe.append("")
+            righe.append("🔥 *Nuovi Record!*")
+            for msg in self.nuovi_pr:
+                pulito = msg.lstrip("🏆").strip()
+                righe.append(f"  • {pulito}")
+
+        return "\n".join(righe)
+
+    def _copia_per_whatsapp(self):
+        testo = self._build_share_text()
+        try:
+            self.page.set_clipboard(testo)
+            self._share_status.value = "✅ Messaggio copiato! Incollalo su WhatsApp."
+            self._share_status.color = theme.SUCCESS
+        except Exception as exc:
+            self._share_status.value = f"Errore: {exc}"
+            self._share_status.color = theme.DANGER
+        self.page.update()
+
+    def _apri_whatsapp(self):
+        try:
+            self.page.launch_url("https://wa.me/?text=" + self._url_encoded_share())
+        except Exception:
+            self._copia_per_whatsapp()
+            self._share_status.value = "Non è stato possibile aprire WhatsApp: testo copiato per incollarvi."
+            self._share_status.color = theme.WARNING
+            self.page.update()
+
+    def _url_encoded_share(self) -> str:
+        from urllib.parse import quote
+        return quote(self._build_share_text())
 
     def _on_confirm(self, e):
         # Applica foto (persistita), valutazione e nota alla sessione

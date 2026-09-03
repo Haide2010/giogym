@@ -1,8 +1,9 @@
 """
 history_detail_view.py
 -----------------------
-Mostra i dettagli completi di una sessione di allenamento passata
-e permette di eliminarla dallo storico.
+Mostra i dettagli completi di una sessione di allenamento passata,
+permette di eliminarla o di riprenderla ricaricando esattamente lo stato
+di completamento, pesi e ripetizioni nella schermata di allenamento attivo.
 """
 
 import flet as ft
@@ -10,17 +11,77 @@ import theme
 
 
 def build_history_detail_view(app, sessione: dict) -> ft.Control:
-    """Costruisce la schermata del dettaglio di un allenamento completato."""
+    """Costruisce la schermata del dettaglio di un allenamento completato con ripristino esatto dello stato."""
     data = sessione.get("data", "-")
     giorno_nome = sessione.get("giorno_nome", "Allenamento")
     esercizi = sessione.get("esercizi", [])
 
-    def elimina_allenamento(e):
-        """Rimuove la sessione corrente dallo storico e salva i dati."""
-        if sessione in app.data.get("storico", []):
-            app.data["storico"].remove(sessione)
-            app.save()
-        app.show_home()
+    def conferma_eliminazione(e):
+        """Apre un dialogo di conferma prima di rimuovere la sessione."""
+        def esegui_eliminazione(ev):
+            if sessione in app.data.get("storico", []):
+                app.data["storico"].remove(sessione)
+                app.save()
+            app.page.close(dlg_conferma)
+            app.show_home()
+
+        dlg_conferma = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
+            title=ft.Text("Conferma eliminazione", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+            content=ft.Text(
+                f"Vuoi davvero eliminare l'allenamento di {giorno_nome} ({data})?\nL'azione è irreversibile.",
+                color=theme.TEXT_MUTED,
+                size=13
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda ev: app.page.close(dlg_conferma)),
+                ft.ElevatedButton(
+                    "Elimina",
+                    bgcolor=ft.Colors.RED_400,
+                    color="white",
+                    on_click=esegui_eliminazione
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        app.page.open(dlg_conferma)
+
+    def riprendi_allenamento(e):
+        """Crea una copia esatta della sessione passata forzando lo stato completato su ogni serie."""
+        esercizi_ripristinati = []
+        for ex in esercizi:
+            serie_ripristinate = []
+            for s in ex.get("serie_svolte", []):
+                # Forziamo explicitamente 'completata' a True se salvata come True o se comunque aveva dei dati validi
+                is_completed = s.get("completata", True)
+                serie_ripristinate.append({
+                    "peso": s.get("peso", 0.0),
+                    "reps": s.get("reps", 0),
+                    "completata": True if is_completed else False
+                })
+            esercizi_ripristinati.append({
+                "nome": ex.get("nome"),
+                "serie_svolte": serie_ripristinate
+            })
+
+        app.allenamento_attivo = {
+            "giorno_nome": f"Ripresa: {giorno_nome}",
+            "esercizi": esercizi_ripristinati
+        }
+
+        if hasattr(app, "show_training"):
+            app.show_training(app.allenamento_attivo)
+        else:
+            app.show_home()
+
+    def modifica_allenamento(e):
+        """Apre l'allenamento in modalità modifica, con tutto lo stato
+        già selezionato (pesi, reps, spunte, note), per poi sovrascriverlo."""
+        if hasattr(app, "show_training_edit"):
+            app.show_training_edit(sessione)
+        else:
+            app.show_home()
 
     header = ft.Row(
         [
@@ -40,13 +101,29 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
                 ],
                 spacing=5,
             ),
-            # Pulsante per eliminare questo allenamento specifico
-            ft.IconButton(
-                icon=ft.Icons.DELETE_OUTLINE,
-                icon_color=ft.Colors.RED_400,
-                tooltip="Elimina allenamento",
-                on_click=elimina_allenamento,
-            ),
+            ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED,
+                        icon_color=theme.INFO,
+                        tooltip="Modifica allenamento",
+                        on_click=modifica_allenamento,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.PLAY_ARROW_ROUNDED,
+                        icon_color=theme.PRIMARY,
+                        tooltip="Riprendi allenamento con spunte e carichi",
+                        on_click=riprendi_allenamento,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE,
+                        icon_color=ft.Colors.RED_400,
+                        tooltip="Elimina allenamento",
+                        on_click=conferma_eliminazione,
+                    ),
+                ],
+                spacing=0,
+            )
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )
@@ -104,8 +181,77 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
             ft.Text("Nessun esercizio registrato per questa sessione.", color=theme.TEXT_MUTED)
         )
 
+    # --- Sezione extra: foto, valutazione a manubri, nota generale ---
+    extra_controls = []
+
+    foto_path = sessione.get("foto", "")
+    if foto_path:
+        try:
+            extra_controls.append(
+                ft.Container(
+                    content=ft.Image(src=foto_path, fit=ft.ImageFit.COVER, height=200, border_radius=theme.RADIUS),
+                    margin=ft.margin.only(bottom=10),
+                )
+            )
+        except Exception:
+            pass
+
+    valutazione = sessione.get("valutazione", 0) or 0
+    if valutazione:
+        manubri = ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.FITNESS_CENTER,
+                    color=theme.PRIMARY if i <= int(valutazione) else theme.TEXT_MUTED,
+                    size=22,
+                )
+                for i in range(1, 6)
+            ],
+            spacing=2,
+        )
+        extra_controls.append(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.STAR, color=theme.GOLD, size=18),
+                                ft.Text("Valutazione:", size=13, color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                            ],
+                            spacing=6,
+                        ),
+                        manubri,
+                        ft.Text(f"{int(valutazione)}/5", size=12, color=theme.TEXT_MUTED),
+                    ],
+                    spacing=10,
+                ),
+                margin=ft.margin.only(bottom=10),
+            )
+        )
+
+    nota_generale = sessione.get("note_generali", "")
+    if nota_generale:
+        extra_controls.append(
+            theme.card_container(
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.NOTES, color=theme.INFO, size=18),
+                                ft.Text("Nota della sessione", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                            ],
+                            spacing=6,
+                        ),
+                        ft.Text(nota_generale, size=13, color=theme.TEXT),
+                    ],
+                    spacing=8,
+                ),
+                margin=ft.margin.only(bottom=10),
+            )
+        )
+
     content_list = ft.ListView(
-        controls=esercizio_controls,
+        controls=extra_controls + esercizio_controls,
         expand=True,
         spacing=0,
     )

@@ -2,182 +2,42 @@
 home_view.py
 ------------
 Schermata A - Home / Dashboard.
-Mostra storico e calendario nella parte superiore, e un comodo box "Accesso rapido" 
-insieme al tasto "INIZIA ALLENAMENTO" in basso.
+Nuovo layout "plancia di comando" in stile mobile app:
+- Header con nome grande e icona profilo/impostazioni tonda.
+- Card hero "Workout Streak & Status" con palina di progresso settimanale.
+- Vista della settimana corrente (Lun-Dom) con cerchi per i giorni completati.
+- Statistiche chiave (Workout, Volume, Media) con numeri grandi.
+- Storico allenamenti.
+- Accesso rapido a "pillole" scorrevoli.
+- Floating Action Button centrale con gradiente: "INIZIA WORKOUT".
 """
 
-import calendar
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+import asyncio
 import flet as ft
 import theme
-import stats_manager
-
-
-def _build_year_calendar(app) -> ft.Control:
-    """Genera la vista a calendario annuale 2026 con mesi cliccabili."""
-    
-    allenati_map = {}
-    for s in app.data.get("storico", []):
-        d_str = s.get("data")
-        if d_str:
-            try:
-                dt = datetime.strptime(d_str, "%d/%m/%Y").date()
-                allenati_map[dt] = s
-            except ValueError:
-                pass
-
-    mesi_nomi = [
-        "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
-        "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"
-    ]
-    giorni_settimana = ["L", "M", "M", "G", "V", "S", "D"]
-
-    def apri_mese_ingrandito(m_idx: int):
-        cal = calendar.monthcalendar(2026, m_idx)
-        
-        m_title = ft.Text(mesi_nomi[m_idx-1], size=18, weight=ft.FontWeight.BOLD, color=theme.TEXT)
-        
-        days_header = ft.Row(
-            [ft.Text(g, size=12, color=theme.TEXT_MUTED, text_align=ft.TextAlign.CENTER, width=32) for g in giorni_settimana],
-            spacing=4,
-            alignment=ft.MainAxisAlignment.CENTER,
-        )
-
-        weeks_col = [days_header]
-        for week in cal:
-            week_row = []
-            for day in week:
-                if day == 0:
-                    week_row.append(ft.Container(width=32, height=32))
-                else:
-                    d_obj = date(2026, m_idx, day)
-                    is_trained = d_obj in allenati_map
-                    
-                    bg_color = theme.PRIMARY if is_trained else (theme.BG_CARD_LIGHT if hasattr(theme, "BG_CARD_LIGHT") else "#2a2a2a")
-                    text_color = "white" if is_trained else theme.TEXT_MUTED
-                    
-                    day_container = ft.Container(
-                        content=ft.Text(str(day), size=13, weight=ft.FontWeight.BOLD if is_trained else ft.FontWeight.NORMAL, color=text_color, text_align=ft.TextAlign.CENTER),
-                        alignment=ft.alignment.center,
-                        width=32,
-                        height=32,
-                        bgcolor=bg_color,
-                        border_radius=6,
-                    )
-                    
-                    if is_trained:
-                        sessione_rif = allenati_map[d_obj]
-                        day_container.ink = True
-                        day_container.on_click = lambda e, sess=sessione_rif: _vai_a_storico(sess)
-                    
-                    week_row.append(day_container)
-            
-            weeks_col.append(ft.Row(week_row, spacing=4, alignment=ft.MainAxisAlignment.CENTER))
-
-        dialog_content = ft.Column(
-            [
-                m_title,
-                ft.Divider(color=theme.BORDER, height=10),
-                ft.Column(weeks_col, spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Text("Tocca un giorno evidenziato per aprire lo storico.", size=11, color=theme.TEXT_MUTED, italic=True, text_align=ft.TextAlign.CENTER)
-            ],
-            spacing=10,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            tight=True,
-        )
-
-        dlg = ft.AlertDialog(
-            modal=True,
-            bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
-            content=dialog_content,
-            actions=[
-                ft.TextButton("Chiudi", on_click=lambda e: app.page.close(dlg)),
-            ],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
-        )
-        app.page.open(dlg)
-
-    def _vai_a_storico(sessione):
-        app.page.close_dialogs() if hasattr(app.page, "close_dialogs") else None
-        app.show_history_detail(sessione)
-
-    month_cards = []
-    for m_idx in range(1, 13):
-        cal = calendar.monthcalendar(2026, m_idx)
-        
-        m_title = ft.Text(mesi_nomi[m_idx-1], size=11, weight=ft.FontWeight.BOLD, color=theme.TEXT)
-        
-        days_header = ft.Row(
-            [ft.Text(g, size=8, color=theme.TEXT_MUTED, text_align=ft.TextAlign.CENTER, width=16) for g in giorni_settimana],
-            spacing=1,
-            alignment=ft.MainAxisAlignment.CENTER,
-        )
-
-        weeks_col = [days_header]
-        for week in cal:
-            week_row = []
-            for day in week:
-                if day == 0:
-                    week_row.append(ft.Container(width=16, height=16))
-                else:
-                    d_obj = date(2026, m_idx, day)
-                    is_trained = d_obj in allenati_map
-                    
-                    bg_color = theme.PRIMARY if is_trained else "transparent"
-                    text_color = "white" if is_trained else theme.TEXT_MUTED
-                    
-                    week_row.append(
-                        ft.Container(
-                            content=ft.Text(str(day), size=8, color=text_color, text_align=ft.TextAlign.CENTER),
-                            alignment=ft.alignment.center,
-                            width=16,
-                            height=16,
-                            bgcolor=bg_color,
-                            border_radius=3,
-                        )
-                    )
-            weeks_col.append(ft.Row(week_row, spacing=1, alignment=ft.MainAxisAlignment.CENTER))
-
-        month_container = ft.Container(
-            content=ft.Column([m_title, ft.Column(weeks_col, spacing=1)], spacing=3, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=6,
-            bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
-            border_radius=8,
-            border=ft.border.all(1, theme.BORDER),
-            width=135,
-            ink=True,
-            on_click=lambda e, idx=m_idx: apri_mese_ingrandito(idx),
-            tooltip="Tocca per ingrandire il mese",
-        )
-        month_cards.append(month_container)
-
-    return ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Text("Calendario 2026", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ft.Text("(Tocca un mese)", size=11, color=theme.TEXT_MUTED, italic=True),
-                ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            ft.Row(
-                month_cards,
-                spacing=8,
-                scroll=ft.ScrollMode.AUTO,
-            ),
-        ],
-        spacing=6,
-    )
+import fitness_calc
 
 
 def _history_card(app, sessione: dict) -> ft.Control:
     """Costruisce la card riassuntiva di un allenamento passato e la rende cliccabile."""
     n_esercizi = len(sessione.get("esercizi", []))
     n_serie = sum(len(e.get("serie_svolte", [])) for e in sessione.get("esercizi", []))
+    vol = fitness_calc.volume_sessione(sessione) if hasattr(fitness_calc, "volume_sessione") else None
+
+    meta = f"{n_esercizi} esercizi · {n_serie} serie"
+    if vol:
+        meta += f" · {vol:g} kg"
 
     return ft.Container(
         content=ft.Row(
             [
+                ft.Container(
+                    content=ft.Icon(ft.Icons.FITNESS_CENTER, color=theme.PRIMARY, size=22),
+                    padding=10,
+                    bgcolor=theme.BG_CARD_LIGHT,
+                    border_radius=theme.RADIUS_SMALL,
+                ),
                 ft.Column(
                     [
                         ft.Text(
@@ -191,11 +51,7 @@ def _history_card(app, sessione: dict) -> ft.Control:
                             size=theme.BODY_SIZE,
                             color=theme.TEXT_MUTED,
                         ),
-                        ft.Text(
-                            f"{n_esercizi} esercizi · {n_serie} serie",
-                            size=12,
-                            color=theme.TEXT_MUTED,
-                        ),
+                        ft.Text(meta, size=12, color=theme.TEXT_MUTED),
                     ],
                     spacing=2,
                     expand=True,
@@ -203,226 +59,539 @@ def _history_card(app, sessione: dict) -> ft.Control:
                 ft.Icon(ft.Icons.CHEVRON_RIGHT, color=theme.PRIMARY),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=12,
         ),
-        padding=14,
+        padding=12,
         margin=ft.margin.only(bottom=8),
-        bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
-        border_radius=12,
-        border=ft.border.all(1, theme.BORDER),
+        bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1E222D",
+        border_radius=theme.RADIUS,
+        shadow=theme.CARD_SHADOW,
         ink=True,
         on_click=lambda e, s=sessione: app.show_history_detail(s),
     )
 
 
-def build_home_view(app) -> ft.Control:
-    """Costruisce la schermata Home con storico, calendario, box Accesso rapido, impostazioni e tasto Inizia."""
+def _settimana_corrente(storico_list) -> list:
+    """Restituisce la lista (data, allenamento_o_None) dei 7 giorni Lun-Dom della settimana corrente."""
+    oggi = date.today()
+    lunedi = oggi - timedelta(days=oggi.weekday())
+    allenati_map = {}
+    for s in storico_list:
+        d_str = s.get("data")
+        if d_str:
+            try:
+                dt = datetime.strptime(d_str, "%d/%m/%Y").date()
+                allenati_map[dt] = s
+            except ValueError:
+                pass
+    giorni = []
+    nomi = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"]
+    for i in range(7):
+        d = lunedi + timedelta(days=i)
+        giorni.append((nomi[i], d, allenati_map.get(d)))
+    return giorni
 
-    # 1. Intestazione con titolo a sinistra e tasto impostazioni a destra
-    header = ft.Row(
-        [
+
+async def _fade_in(control, delay: float = 0.0):
+    """Entra gradualmente (fade + leggera salita, con easing) quando la Home carica."""
+    try:
+        await asyncio.sleep(delay)
+        control.opacity = 1
+        control.offset = ft.Offset(0, 0)
+        control.update()
+    except Exception:
+        pass
+
+
+def _annual_dots_card(app, storico_list: list) -> ft.Control:
+    """Mappa a pallini dell'intero anno: un pallino per ogni giorno; quelli in
+    cui ti sei allenato sono colorati. Cliccando un giorno colorato si apre
+    lo storico di quell'allenamento (sessione)."""
+    anno = date.today().year
+    oggi = date.today()
+
+    # Mappa data -> sessione allo storico
+    allenati_map = {}
+    for s in storico_list:
+        d_str = s.get("data")
+        if d_str:
+            try:
+                allenati_map[datetime.strptime(d_str, "%d/%m/%Y").date()] = s
+            except ValueError:
+                pass
+    giorni_anno = [date(anno, 1, 1) + timedelta(days=i)
+                   for i in range(0, 366)]
+    giorni_anno = [d for d in giorni_anno if d.year == anno]
+
+    mesi_nomi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
+                 "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+
+    def _pallino(d: date) -> ft.Control:
+        sess = allenati_map.get(d)
+        allenato = sess is not None
+        futuro = d > oggi
+        is_oggi = d == oggi
+
+        if futuro:
+            fill = ft.Colors.with_opacity(0.0, theme.BG_CARD)   # trasparente
+            colore_testo = None
+        elif allenato:
+            fill = theme.PRIMARY
+            colore_testo = "white"
+        else:
+            fill = theme.BG_CARD_LIGHT
+            colore_testo = theme.TEXT_MUTED
+
+        pallino = ft.Container(
+            content=ft.Text(str(d.day), size=9,
+                            color=colore_testo if not futuro else ft.Colors.with_opacity(0.0, theme.BG_CARD),
+                            text_align=ft.TextAlign.CENTER),
+            alignment=ft.alignment.center,
+            width=22, height=22,
+            bgcolor=fill,
+            border_radius=7,
+            border=ft.border.all(2, theme.PRIMARY) if is_oggi else None,
+            shadow=ft.BoxShadow(blur_radius=10, color="#FF6B0088") if allenato else None,
+            ink=True,
+            tooltip=f"{d.day:02d}/{d.month:02d}/{d.year} · {'Allenato' if allenato else 'Riposo'}"
+                    + (f" · {sess.get('giorno_nome', '')}" if allenato else ""),
+            on_click=(lambda e, s=sess: app.show_history_detail(s)) if allenato else None,
+        )
+        return pallino
+
+    # Raggruppa per mese
+    month_cols = []
+    for m in range(1, 13):
+        giorni_mese = [d for d in giorni_anno if d.month == m]
+        if not giorni_mese:
+            continue
+        n_allenati = sum(1 for d in giorni_mese if d in allenati_map)
+        month_cols.append(
             ft.Column(
                 [
-                    ft.Text("GioGym", size=theme.TITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ft.Text("Il tuo allenamento, sempre con te", size=12, color=theme.TEXT_MUTED),
+                    ft.Divider(color=theme.BORDER, height=6),
+                    ft.Row(
+                        [
+                            ft.Text(mesi_nomi[m - 1], size=11, weight=ft.FontWeight.BOLD, color=theme.PRIMARY),
+                            ft.Text(f"({n_allenati})", size=10, color=theme.TEXT_MUTED),
+                        ],
+                        spacing=4,
+                    ),
+                    ft.Row(
+                        [_pallino(d) for d in giorni_mese],
+                        spacing=4,
+                        wrap=True,
+                    ),
                 ],
-                spacing=0,
+                spacing=2,
+            )
+        )
+
+    tot_allenati = sum(1 for d in giorni_anno if d in allenati_map)
+
+    return theme.card_container(
+        ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CALENDAR_MONTH, color=theme.PRIMARY, size=20),
+                        ft.Column(
+                            [
+                                ft.Text("L'intero anno", size=theme.SUBTITLE_SIZE,
+                                        weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                                ft.Text(f"{anno} · {tot_allenati} giorni allenati",
+                                        size=12, color=theme.TEXT_MUTED),
+                            ],
+                            spacing=0,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                *month_cols,
+                ft.Divider(color=theme.BORDER, height=8),
+                ft.Row(
+                    [
+                        ft.Container(width=12, height=12, bgcolor=theme.PRIMARY, border_radius=4),
+                        ft.Text("Allenato", size=10, color=theme.TEXT_MUTED),
+                        ft.Container(width=12, height=12, bgcolor=theme.BG_CARD_LIGHT, border_radius=4),
+                        ft.Text("Riposo", size=10, color=theme.TEXT_MUTED),
+                        ft.Container(width=12, height=12, border=ft.border.all(2, theme.PRIMARY), border_radius=4),
+                        ft.Text("Oggi", size=10, color=theme.TEXT_MUTED),
+                    ],
+                    spacing=6,
+                ),
+            ],
+            spacing=2,
+        ),
+    )
+
+
+def build_home_view(app) -> ft.Control:
+    """Costruisce la nuova Home in stile 'plancia di comando'."""
+
+    storico_list = app.data.get("storico", [])
+    profilo = app.data.get("profilo", {})
+    target_settimanale = int(profilo.get("frequenza_settimanale", 0) or 0)
+    fatta_settimana = fitness_calc.frequenza_settimana_corrente(storico_list)
+    streak = fitness_calc.streak_settimane_consecutive(storico_list, target_settimanale)
+
+    # Statistiche
+    tot_allenamenti = len(storico_list)
+    media_settimanale = round(tot_allenamenti / max(1, (datetime.now().date() - date(2026, 1, 1)).days // 7), 1)
+    vol_settimana = fitness_calc.volume_settimanale(storico_list, mode="kg")
+    volume_corrente = round(vol_settimana[0][1], 0) if vol_settimana else 0
+    if volume_corrente == int(volume_corrente):
+        volume_corrente = int(volume_corrente)
+
+    # ---------- 1. Header ----------
+    header = ft.Row(
+        [
+            ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Icon(ft.Icons.FITNESS_CENTER, color=theme.PRIMARY, size=28),
+                        padding=8,
+                        bgcolor=theme.BG_CARD_LIGHT,
+                        border_radius=14,
+                        shadow=theme.CARD_SHADOW,
+                    ),
+                    ft.Column(
+                        [
+                            ft.Text("GioGym", size=28, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                            ft.Text("La tua plancia di comando", size=12, color=theme.TEXT_MUTED),
+                        ],
+                        spacing=0,
+                    ),
+                ],
+                spacing=10,
             ),
-            ft.IconButton(
-                icon=ft.Icons.SETTINGS_ROUNDED,
-                icon_color=theme.TEXT,
-                icon_size=24,
-                on_click=lambda e: app.show_settings(),
-                tooltip="Impostazioni",
+            ft.Container(
+                content=ft.IconButton(
+                    icon=ft.Icons.SETTINGS_ROUNDED,
+                    icon_color=theme.TEXT,
+                    icon_size=22,
+                    on_click=lambda e: app.show_settings(),
+                    tooltip="Impostazioni",
+                ),
+                bgcolor=theme.BG_CARD_LIGHT,
+                border_radius=20,
+                padding=ft.padding.all(2),
+                shadow=theme.CARD_SHADOW,
+                ink=True,
             ),
         ],
         alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
     )
 
-    # 2. Statistiche rapide: allenamenti mese/settimana, streak, volume
-    stats = stats_manager.compute_home_stats(app.data.get("storico", []))
+    # ---------- 2. Card hero Streak & Status ----------
+    def _bar_scale(tipo="serie"):
+        """Barrette di progresso colorate per la settimana rispetto al target."""
+        target = max(target_settimanale, 1)
+        riga = []
+        for i in range(1, target + 1):
+            pieno = i <= fatta_settimana
+            riga.append(
+                ft.Container(
+                    width=10,
+                    expand=True,
+                    height=10,
+                    bgcolor=theme.PRIMARY if pieno else theme.BG_CARD_LIGHT,
+                    border_radius=5,
+                )
+            )
+        return riga
 
-    def _stat_card(icona, valore, etichetta, colore):
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Icon(icona, color=colore, size=20),
-                    ft.Text(str(valore), size=18, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ft.Text(etichetta, size=10, color=theme.TEXT_MUTED, text_align=ft.TextAlign.CENTER),
-                ],
-                spacing=2,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=10,
-            bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
-            border_radius=12,
-            border=ft.border.all(1, theme.BORDER),
-            expand=True,
-        )
-
-    stats_row = ft.Row(
-        [
-            _stat_card(ft.Icons.CALENDAR_MONTH, stats["allenamenti_mese"], "Questo mese", theme.PRIMARY),
-            _stat_card(ft.Icons.DATE_RANGE, stats["allenamenti_settimana"], "Questa settimana", theme.INFO if hasattr(theme, "INFO") else theme.PRIMARY),
-            _stat_card(ft.Icons.LOCAL_FIRE_DEPARTMENT, f'{stats["streak_settimane"]} sett.', "Streak", theme.WARNING),
-            _stat_card(ft.Icons.STACKED_BAR_CHART, f'{int(stats["volume_settimana"])} kg', "Volume settimana", theme.SUCCESS),
-        ],
-        spacing=8,
+    hero_card = ft.Container(
+        content=ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                ft.Text("QUESTA SETTIMANA", size=11, color=theme.TEXT_MUTED, weight=ft.FontWeight.BOLD),
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            str(fatta_settimana),
+                                            size=theme.BIG_NUMBER_SIZE,
+                                            weight=ft.FontWeight.BOLD,
+                                            color=theme.TEXT,
+                                        ),
+                                        ft.Text(
+                                            f"/ {target_settimanale if target_settimanale else '–'}",
+                                            size=18,
+                                            weight=ft.FontWeight.BOLD,
+                                            color=theme.TEXT_MUTED,
+                                        ),
+                                    ],
+                                    spacing=2,
+                                ),
+                            ],
+                            spacing=0,
+                        ),
+                        ft.Row(
+                            [ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT, color=theme.PRIMARY, size=18),
+                             ft.Text(f"{streak} sett.", size=16, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)],
+                            spacing=4,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Row(_bar_scale(), spacing=6),
+                ft.Text(
+                    f"Streak: {streak} settimana{'e' if streak != 1 else ''} consecutive al target. Continua così!",
+                    size=12, color=theme.TEXT_MUTED,
+                ),
+            ],
+            spacing=10,
+        ),
+        padding=16,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_left,
+            end=ft.alignment.bottom_right,
+            colors=["#1E222D", "#26212A"],
+        ),
+        border_radius=theme.RADIUS + 4,
+        border=ft.border.all(1, theme.BORDER),
+        shadow=theme.CARD_SHADOW,
+        opacity=0,
+        offset=ft.Offset(0, 20),
+        animate_opacity=ft.Animation(450, ft.AnimationCurve.EASE_OUT),
+        animate_offset=ft.Animation(450, ft.AnimationCurve.EASE_OUT),
     )
 
-    # 2b. Avviso "scheda da rivedere" se non aggiornata da troppe settimane
-    avviso_scheda = stats_manager.scheda_da_rivedere(app.data.get("scheda", {}))
-    scheda_warning = None
-    if avviso_scheda["avviso"]:
-        scheda_warning = ft.Container(
-            content=ft.Row(
+    # ---------- 3. Vista settimana corrente (Lun-Dom) ----------
+    settimana = _settimana_corrente(storico_list)
+    giorni_row = []
+    for nome, d, sess in settimana:
+        allenato = sess is not None
+        is_oggi = d == date.today()
+        giorno_circ = ft.Container(
+            content=ft.Icon(ft.Icons.RADIO_BUTTON_CHECKED, size=16, color="white")
+            if allenato else ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED, size=16, color=theme.TEXT_MUTED),
+            alignment=ft.alignment.center,
+            width=36,
+            height=36,
+            bgcolor=theme.PRIMARY if allenato else theme.BG_CARD_LIGHT,
+            border_radius=18,
+            border=ft.border.all(2, theme.PRIMARY) if is_oggi else None,
+        )
+        giorni_row.append(
+            ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.INFO_OUTLINE, color=theme.WARNING, size=20),
-                            ft.Text(
-                                f'Non modifichi la scheda da {avviso_scheda["settimane"]} settimane: potrebbe essere ora di rivederla.',
-                                size=12,
-                                color=theme.TEXT,
-                                expand=True,
-                            ),
-                        ],
-                        spacing=8,
-                        expand=True,
-                    ),
-                    ft.TextButton("Rivedi", on_click=lambda e: app.show_schema_editor()),
+                    giorno_circ,
+                    ft.Text(nome, size=10, weight=ft.FontWeight.BOLD if is_oggi else ft.FontWeight.NORMAL,
+                            color=theme.TEXT if is_oggi else theme.TEXT_MUTED),
                 ],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-            ),
-            padding=10,
-            bgcolor=ft.Colors.with_opacity(0.12, theme.WARNING),
-            border_radius=10,
-            border=ft.border.all(1, theme.WARNING),
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=4,
+            )
         )
 
-    # 3. Storico
-    storico = list(reversed(app.data.get("storico", [])))
+    week_card = theme.card_container(
+        ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(ft.Icons.CALENDAR_TODAY, color=theme.PRIMARY, size=18),
+                        ft.Text("Settimana corrente", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ],
+                    spacing=6,
+                ),
+                ft.Row(giorni_row, alignment=ft.MainAxisAlignment.SPACE_BETWEEN, spacing=4),
+            ],
+            spacing=10,
+        ),
+        opacity=0,
+        offset=ft.Offset(0, 20),
+        animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
+        animate_offset=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
+    )
+
+    # ---------- 4. Statistiche chiave ----------
+    stat_card = theme.card_container(
+        ft.Row(
+            [
+                ft.Column([
+                    ft.Text(str(tot_allenamenti), size=theme.BIG_NUMBER_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ft.Text("Workout", size=11, color=theme.TEXT_MUTED),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+                ft.VerticalDivider(width=1, color=theme.BORDER),
+                ft.Column([
+                    ft.Text(str(volume_corrente), size=theme.BIG_NUMBER_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ft.Text("Volume (kg)", size=11, color=theme.TEXT_MUTED),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+                ft.VerticalDivider(width=1, color=theme.BORDER),
+                ft.Column([
+                    ft.Text(str(media_settimanale), size=theme.BIG_NUMBER_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ft.Text("Media/sett.", size=11, color=theme.TEXT_MUTED),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, expand=True),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_AROUND,
+        ),
+        opacity=0,
+        offset=ft.Offset(0, 20),
+        animate_opacity=ft.Animation(550, ft.AnimationCurve.EASE_OUT),
+        animate_offset=ft.Animation(550, ft.AnimationCurve.EASE_OUT),
+    )
+
+    # ---------- 5. Storico ----------
+    storico = list(reversed(storico_list))
     if storico:
-        history_controls = [_history_card(app, s) for s in storico]
+        history_controls = [_history_card(app, s) for s in storico[:5]]
     else:
         history_controls = [
             ft.Container(
                 content=ft.Column(
                     [
                         ft.Icon(ft.Icons.HISTORY, size=32, color=theme.TEXT_MUTED),
-                        ft.Text(
-                            "Nessun allenamento registrato.",
-                            color=theme.TEXT_MUTED,
-                            text_align=ft.TextAlign.CENTER,
-                            size=12,
-                        ),
+                        ft.Text("Nessun allenamento registrato.", color=theme.TEXT_MUTED,
+                                text_align=ft.TextAlign.CENTER, size=12),
                     ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=4,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
                 ),
                 alignment=ft.alignment.center,
                 padding=12,
             )
         ]
 
-    # 3. Calendario annuale
-    calendar_section = _build_year_calendar(app)
+    # ---------- 6. Accesso rapido a "pillole" ----------
+    pills = [
+        (ft.Icons.VIEW_LIST, "Scheda", lambda e: app.show_schema_editor()),
+        (ft.Icons.EMOJI_EVENTS, "Record", lambda e: app.show_pr()),
+        (ft.Icons.SHOW_CHART, "Grafici", lambda e: app.show_progress()),
+        (ft.Icons.PERSON, "Profilo", lambda e: app.show_profile()),
+        (ft.Icons.HEALING, "Infortuni", lambda e: app.show_injuries()),
+        (ft.Icons.BACKUP, "Backup", lambda e: app.show_backup()),
+    ]
 
-    # 4. Griglia di azioni rapide: Scheda, PR, Grafici, Backup.
-    def _quick_action(icona, titolo, sottotitolo, colore, on_click):
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Container(
-                        content=ft.Icon(icona, color=colore, size=22),
-                        padding=8,
-                        bgcolor=theme.BG_CARD_LIGHT if hasattr(theme, "BG_CARD_LIGHT") else "#2a2a2a",
-                        border_radius=10,
-                    ),
-                    ft.Text(titolo, size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ft.Text(sottotitolo, size=10, color=theme.TEXT_MUTED),
-                ],
-                spacing=4,
-            ),
-            padding=12,
-            bgcolor=theme.CARD_BG if hasattr(theme, "CARD_BG") else "#1a1a1a",
-            border_radius=14,
-            border=ft.border.all(1, theme.BORDER),
-            ink=True,
-            on_click=on_click,
-            width=155,
+    pill_row = []
+    for icona, titolo, on_click in pills:
+        pill_row.append(
+            ft.Container(
+                content=ft.Row(
+                    [ft.Icon(icona, color=theme.PRIMARY, size=16), ft.Text(titolo, size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT)],
+                    spacing=6,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.symmetric(horizontal=14, vertical=10),
+                bgcolor=theme.BG_CARD_LIGHT,
+                border_radius=24,
+                shadow=theme.CARD_SHADOW,
+                ink=True,
+                on_click=on_click,
+            )
         )
 
-    quick_actions_grid = ft.Row(
+    quick_access = ft.Column(
         [
-            _quick_action(ft.Icons.VIEW_LIST, "Scheda", "Modifica giorni/esercizi", theme.PRIMARY,
-                          lambda e: app.show_schema_editor()),
-            _quick_action(ft.Icons.EMOJI_EVENTS, "Record (PR)", "I tuoi massimali", getattr(theme, "GOLD", "#FFD700"),
-                          lambda e: app.show_pr()),
-            _quick_action(ft.Icons.SHOW_CHART, "Grafici", "Andamento progressi", getattr(theme, "INFO", "#2196F3"),
-                          lambda e: app.show_progress()),
-            _quick_action(ft.Icons.BACKUP, "Backup", "Esporta/importa dati", getattr(theme, "SUCCESS", "#4CAF50"),
-                          lambda e: app.show_backup()),
-        ],
-        spacing=10,
-        scroll=ft.ScrollMode.AUTO,
-    )
-
-    scheda_box = ft.Column(
-        [
-            ft.Text("Accesso rapido", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-            quick_actions_grid,
-        ],
-        spacing=8,
-    )
-
-    # 5. Tasto gigante "INIZIA ALLENAMENTO"
-    start_button = ft.Container(
-        content=ft.ElevatedButton(
-            content=ft.Row(
-                [
-                    ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=32, color="white"),
-                    ft.Text("INIZIA ALLENAMENTO", size=18, weight=ft.FontWeight.BOLD),
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
+            ft.Row(
+                [ft.Icon(ft.Icons.APP_SHORTCUT, color=theme.PRIMARY, size=18),
+                 ft.Text("Accesso rapido", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT)],
                 spacing=6,
             ),
-            bgcolor=theme.PRIMARY,
-            color="white",
-            height=64,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=18)),
-            on_click=lambda e: app.show_selection(),
-        ),
-        padding=ft.padding.symmetric(vertical=4),
-    )
-
-    # Assemblaggio finale della lista a scorrimento
-    main_content_controls = [
-        header,
-        ft.Divider(color=theme.BORDER, height=15),
-        stats_row,
-    ]
-    if scheda_warning:
-        main_content_controls.append(scheda_warning)
-    main_content_controls += [
-        ft.Divider(color=theme.BORDER, height=15),
-        ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-        *history_controls,
-        ft.Divider(color=theme.BORDER, height=15),
-        calendar_section,
-        ft.Divider(color=theme.BORDER, height=15),
-        scheda_box,
-        start_button,
-    ]
-
-    main_content = ft.ListView(
-        main_content_controls,
-        expand=True,
+            ft.Row(pill_row, spacing=8, scroll=ft.ScrollMode.AUTO),
+        ],
         spacing=10,
     )
 
-    return ft.Column(
+    # ---------- 7. Contenuto scorrevole ----------
+    annual_card = _annual_dots_card(app, storico_list)
+
+    main_content = ft.ListView(
+        [
+            header,
+            ft.Divider(color=theme.BORDER, height=16),
+            hero_card,
+            ft.Divider(color=theme.BORDER, height=10),
+            week_card,
+            ft.Divider(color=theme.BORDER, height=10),
+            stat_card,
+            ft.Divider(color=theme.BORDER, height=16),
+            ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+            *history_controls,
+            ft.Divider(color=theme.BORDER, height=16),
+            quick_access,
+            ft.Divider(color=theme.BORDER, height=16),
+            annual_card,
+        ],
+        expand=True,
+        spacing=8,
+        padding=ft.padding.only(bottom=90),
+    )
+
+    # ---------- 8. FAB "INIZIA WORKOUT" ----------
+    def _avvia_workout(e):
+        # feedback "a pressione" sull'FAB
+        fab.scale = 0.93
+        fab.update()
+        try:
+            e.page.run_task(_unpress_fab, fab)
+        except Exception:
+            pass
+        app.show_selection()
+
+    async def _unpress_fab(control):
+        await asyncio.sleep(0.1)
+        try:
+            control.scale = 1.0
+            control.update()
+        except Exception:
+            pass
+
+    fab = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=28, color="white"),
+                ft.Text("INIZIA WORKOUT", size=16, weight=ft.FontWeight.BOLD, color="white"),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=6,
+        ),
+        padding=ft.padding.symmetric(horizontal=28, vertical=18),
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.center_left,
+            end=ft.alignment.center_right,
+            colors=[theme.GRADIENT_START, theme.GRADIENT_END],
+        ),
+        border_radius=32,
+        shadow=ft.BoxShadow(spread_radius=2, blur_radius=24, color="#FF6B0088", offset=ft.Offset(0, 6)),
+        ink=True,
+        opacity=0,
+        offset=ft.Offset(0, 30),
+        animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
+        animate_offset=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
+        animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
+        on_click=_avvia_workout,
+    )
+
+    # Programma l'ingresso animato (fade + salita) a scaglioni
+    if hasattr(app.page, "run_task"):
+        try:
+            app.page.run_task(_fade_in, hero_card, 0.05)
+            app.page.run_task(_fade_in, week_card, 0.18)
+            app.page.run_task(_fade_in, stat_card, 0.30)
+            app.page.run_task(_fade_in, fab, 0.42)
+        except Exception:
+            pass
+
+    return ft.Stack(
         [
             main_content,
+            ft.Container(
+                content=fab,
+                alignment=ft.alignment.center,
+                bgcolor=ft.Colors.with_opacity(0.0, theme.BG),
+                left=0,
+                right=0,
+                bottom=16,
+            ),
         ],
         expand=True,
     )
+
+
+# Manteniamo l'annuale disponibile ma non più mostrato di default (sostituito dalla vista settimanale).
+def _build_year_calendar(app) -> ft.Control:
+    import calendar
+    return ft.Text("", visible=False)

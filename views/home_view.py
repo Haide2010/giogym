@@ -103,91 +103,232 @@ async def _fade_in(control, delay: float = 0.0):
         pass
 
 
-def _annual_dots_card(app, storico_list: list) -> ft.Control:
-    """Mappa a pallini dell'intero anno: un pallino per ogni giorno; quelli in
-    cui ti sei allenato sono colorati. Cliccando un giorno colorato si apre
-    lo storico di quell'allenamento (sessione)."""
-    anno = date.today().year
-    oggi = date.today()
-
-    # Mappa data -> sessione allo storico
-    allenati_map = {}
+def _calendar_map(storico_list) -> dict:
+    """Mappa data -> sessione per navigare dal calendario allo storico."""
+    mappa = {}
     for s in storico_list:
         d_str = s.get("data")
         if d_str:
             try:
-                allenati_map[datetime.strptime(d_str, "%d/%m/%Y").date()] = s
+                mappa[datetime.strptime(d_str, "%d/%m/%Y").date()] = s
             except ValueError:
                 pass
-    giorni_anno = [date(anno, 1, 1) + timedelta(days=i)
-                   for i in range(0, 366)]
-    giorni_anno = [d for d in giorni_anno if d.year == anno]
+    return mappa
 
-    mesi_nomi = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
-                 "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
 
-    def _pallino(d: date) -> ft.Control:
-        sess = allenati_map.get(d)
-        allenato = sess is not None
-        futuro = d > oggi
-        is_oggi = d == oggi
+def _open_month(app, anno: int, m: int, allenati_map: dict):
+    """Apre il mese ingrandito: pallini colorati cliccabili -> storico allenamento."""
+    import calendar as _cal
+    oggi = date.today()
 
-        if futuro:
-            fill = ft.Colors.with_opacity(0.0, theme.BG_CARD)   # trasparente
-            colore_testo = None
-        elif allenato:
-            fill = theme.PRIMARY
-            colore_testo = "white"
-        else:
-            fill = theme.BG_CARD_LIGHT
-            colore_testo = theme.TEXT_MUTED
+    giorni_settimana = ["L", "M", "M", "G", "V", "S", "D"]
+    meso_nomi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+                 "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+    m_title = ft.Text(f"{meso_nomi[m - 1]} {anno}",
+                      size=18, weight=ft.FontWeight.BOLD, color=theme.TEXT)
 
-        pallino = ft.Container(
-            content=ft.Text(str(d.day), size=9,
-                            color=colore_testo if not futuro else ft.Colors.with_opacity(0.0, theme.BG_CARD),
-                            text_align=ft.TextAlign.CENTER),
-            alignment=ft.alignment.center,
-            width=22, height=22,
-            bgcolor=fill,
-            border_radius=7,
-            border=ft.border.all(2, theme.PRIMARY) if is_oggi else None,
-            shadow=ft.BoxShadow(blur_radius=10, color="#FF6B0088") if allenato else None,
-            ink=True,
-            tooltip=f"{d.day:02d}/{d.month:02d}/{d.year} · {'Allenato' if allenato else 'Riposo'}"
-                    + (f" · {sess.get('giorno_nome', '')}" if allenato else ""),
-            on_click=(lambda e, s=sess: app.show_history_detail(s)) if allenato else None,
-        )
-        return pallino
+    cell = 34
+    gap = 6
 
-    # Raggruppa per mese
-    month_cols = []
-    for m in range(1, 13):
-        giorni_mese = [d for d in giorni_anno if d.month == m]
-        if not giorni_mese:
-            continue
-        n_allenati = sum(1 for d in giorni_mese if d in allenati_map)
-        month_cols.append(
-            ft.Column(
+    days_header = ft.Row(
+        [ft.Text(g, size=12, color=theme.TEXT_MUTED,
+                 text_align=ft.TextAlign.CENTER, width=cell)
+         for g in giorni_settimana],
+        spacing=gap,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    col = [days_header]
+    for week in _cal.monthcalendar(anno, m):
+        riga = []
+        for day in week:
+            if day == 0:
+                riga.append(ft.Container(width=cell, height=cell))
+                continue
+            d = date(anno, m, day)
+            sess = allenati_map.get(d)
+            allenato = sess is not None
+            futuro = d > oggi
+            is_oggi = d == oggi
+
+            circ = ft.Container(
+                content=ft.Text(str(day), size=12,
+                                color="white" if (allenato or is_oggi) else theme.TEXT_MUTED,
+                                text_align=ft.TextAlign.CENTER,
+                                weight=ft.FontWeight.BOLD if allenato else ft.FontWeight.NORMAL),
+                alignment=ft.alignment.center,
+                width=cell, height=cell,
+                bgcolor=theme.PRIMARY if allenato else
+                        (theme.PRIMARY_DARK if is_oggi else theme.BG_CARD_LIGHT),
+                border_radius=int(cell / 2),
+                border=ft.border.all(2, theme.PRIMARY) if is_oggi and not allenato else None,
+                shadow=ft.BoxShadow(blur_radius=10, color="#FF6B0088") if allenato else None,
+                ink=True,
+                on_click=(lambda e, s=sess: _chiudi_e_apri(s)) if allenato else None,
+            )
+            riga.append(circ)
+        col.append(ft.Row(riga, spacing=gap, alignment=ft.MainAxisAlignment.CENTER))
+
+    def _chiudi_e_apri(sess):
+        try:
+            app.page.close(dlg)
+        except Exception:
+            pass
+        app.show_history_detail(sess)
+
+    # Larghezza limitata per non uscire dallo schermo (soprattutto su mobile)
+    max_w = 7 * cell + 6 * gap + 16
+    if getattr(app.page, "width", None):
+        max_w = min(max_w, app.page.width * 0.92)
+
+    dlg = ft.AlertDialog(
+        modal=True,
+        bgcolor=theme.BG_CARD,
+        content=ft.Container(
+            content=ft.Column(
                 [
-                    ft.Divider(color=theme.BORDER, height=6),
-                    ft.Row(
-                        [
-                            ft.Text(mesi_nomi[m - 1], size=11, weight=ft.FontWeight.BOLD, color=theme.PRIMARY),
-                            ft.Text(f"({n_allenati})", size=10, color=theme.TEXT_MUTED),
-                        ],
-                        spacing=4,
+                    m_title,
+                    ft.Divider(color=theme.BORDER, height=10),
+                    ft.Column(
+                        col,
+                        spacing=6,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        scroll=ft.ScrollMode.AUTO,
+                        width=max_w,
+                        height=min(6 * (cell + gap) + 30, 380),
                     ),
-                    ft.Row(
-                        [_pallino(d) for d in giorni_mese],
-                        spacing=4,
-                        wrap=True,
-                    ),
+                    ft.Text("Tocca un giorno colorato per aprire lo storico.",
+                            size=11, color=theme.TEXT_MUTED, italic=True,
+                            text_align=ft.TextAlign.CENTER),
                 ],
-                spacing=2,
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            padding=8,
+        ),
+        actions=[
+            ft.TextButton("Chiudi", on_click=lambda e: app.page.close(dlg)),
+        ],
+        actions_alignment=ft.MainAxisAlignment.CENTER,
+    )
+    app.page.open(dlg)
+
+
+def _month_grid(app, anno: int, m: int, allenati_map: dict, cell: int = 26) -> ft.Control:
+    """Griglia giorni di un mese: giorni passati/attuali colorati, cliccabili se allenati."""
+    import calendar as _cal
+    oggi = date.today()
+    giorni_settimana = ["L", "M", "M", "G", "V", "S", "D"]
+    cells = []
+    for g in giorni_settimana:
+        cells.append(ft.Container(
+            width=cell,
+            alignment=ft.alignment.center,
+            content=ft.Text(g, size=int(cell * 0.36), color=theme.TEXT_MUTED,
+                            text_align=ft.TextAlign.CENTER),
+        ))
+    for week in _cal.monthcalendar(anno, m):
+        for day in week:
+            if day == 0:
+                cells.append(ft.Container(width=cell, height=int(cell * 0.85)))
+                continue
+            d = date(anno, m, day)
+            sess = allenati_map.get(d)
+            allenato = sess is not None
+            futuro = d > oggi
+            is_oggi = d == oggi
+            if futuro:
+                cells.append(ft.Container(width=cell, height=int(cell * 0.85),
+                                          bgcolor=ft.Colors.with_opacity(0.0, theme.BG_CARD)))
+            else:
+                cells.append(
+                    ft.Container(
+                        content=ft.Text(str(day), size=int(cell * 0.38),
+                                        color="white" if (allenato or is_oggi) else theme.TEXT_MUTED,
+                                        text_align=ft.TextAlign.CENTER,
+                                        weight=ft.FontWeight.BOLD if allenato else ft.FontWeight.NORMAL),
+                        alignment=ft.alignment.center,
+                        width=cell, height=int(cell * 0.85),
+                        bgcolor=theme.PRIMARY if allenato else
+                                (theme.PRIMARY_DARK if is_oggi else theme.BG_CARD_LIGHT),
+                        border_radius=max(4, int(cell * 0.22)),
+                        border=ft.border.all(1.5, theme.PRIMARY) if is_oggi and not allenato else None,
+                        on_click=(lambda e, s=sess: app.show_history_detail(s)) if allenato else None,
+                    )
+                )
+    return ft.Row(cells, spacing=int(cell * 0.11), wrap=True)
+
+
+MESI_ABBR = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
+             "Lug", "Ago", "Set", "Ott", "Nov", "Dic"]
+MESI_NOMI = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+             "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
+
+
+def _annual_calendar_card(app, storico_list: list) -> ft.Control:
+    """Calendario: il mese corrente appare in grande (giorni cliccabili),
+    gli altri mesi solo come nomi cliccabili che aprono il mese ingrandito."""
+    anno = date.today().year
+    oggi = date.today()
+    m_att = oggi.month
+    allenati_map = _calendar_map(storico_list)
+    tot_allenati = len(allenati_map)
+
+    def _conta(m):
+        return sum(1 for d in allenati_map if d.year == anno and d.month == m)
+
+    # --- Mese corrente in grande ---
+    big_month = theme.card_container(
+        ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Text(f"{MESI_NOMI[m_att - 1]} {anno}", size=theme.SUBTITLE_SIZE,
+                                weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                        ft.Text(f"· {_conta(m_att)} giorni", size=12,
+                                color=theme.PRIMARY, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=6,
+                ),
+                _month_grid(app, anno, m_att, allenati_map, cell=26),
+                ft.Text("Tocca un giorno colorato per aprire lo storico.",
+                        size=11, color=theme.TEXT_MUTED, italic=True),
+            ],
+            spacing=8,
+        ),
+    )
+
+    # --- Gli altri mesi come nomi cliccabili ---
+    pills = []
+    for m in range(1, 13):
+        if m == m_att:
+            continue
+        n_all = _conta(m)
+        passato = m < m_att
+        pills.append(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Text(MESI_ABBR[m - 1], size=13,
+                                weight=ft.FontWeight.BOLD,
+                                color=theme.TEXT if passato else theme.TEXT_MUTED),
+                        ft.Text(f"{n_all}", size=12, color=theme.PRIMARY,
+                                weight=ft.FontWeight.BOLD) if n_all else ft.Text("", size=12),
+                    ],
+                    spacing=5,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                padding=ft.padding.symmetric(horizontal=14, vertical=9),
+                bgcolor=theme.BG_CARD_LIGHT if passato else ft.Colors.with_opacity(0.30, theme.BG_CARD_LIGHT),
+                border_radius=20,
+                shadow=theme.CARD_SHADOW if passato else None,
+                ink=True,
+                on_click=lambda e, mm=m: _open_month(app, anno, mm, allenati_map),
+                tooltip=f"Tocca per aprire {MESI_NOMI[m - 1]} {anno}",
             )
         )
-
-    tot_allenati = sum(1 for d in giorni_anno if d in allenati_map)
+    other_grid = ft.Row(pills, spacing=8, wrap=True)
 
     return theme.card_container(
         ft.Column(
@@ -197,9 +338,9 @@ def _annual_dots_card(app, storico_list: list) -> ft.Control:
                         ft.Icon(ft.Icons.CALENDAR_MONTH, color=theme.PRIMARY, size=20),
                         ft.Column(
                             [
-                                ft.Text("L'intero anno", size=theme.SUBTITLE_SIZE,
+                                ft.Text("Calendario", size=theme.SUBTITLE_SIZE,
                                         weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                                ft.Text(f"{anno} · {tot_allenati} giorni allenati",
+                                ft.Text(f"{anno} · {tot_allenati} giorni allenati · tocca un mese per ingrandirlo",
                                         size=12, color=theme.TEXT_MUTED),
                             ],
                             spacing=0,
@@ -207,21 +348,12 @@ def _annual_dots_card(app, storico_list: list) -> ft.Control:
                     ],
                     spacing=8,
                 ),
-                *month_cols,
+                big_month,
                 ft.Divider(color=theme.BORDER, height=8),
-                ft.Row(
-                    [
-                        ft.Container(width=12, height=12, bgcolor=theme.PRIMARY, border_radius=4),
-                        ft.Text("Allenato", size=10, color=theme.TEXT_MUTED),
-                        ft.Container(width=12, height=12, bgcolor=theme.BG_CARD_LIGHT, border_radius=4),
-                        ft.Text("Riposo", size=10, color=theme.TEXT_MUTED),
-                        ft.Container(width=12, height=12, border=ft.border.all(2, theme.PRIMARY), border_radius=4),
-                        ft.Text("Oggi", size=10, color=theme.TEXT_MUTED),
-                    ],
-                    spacing=6,
-                ),
+                ft.Text("Altri mesi", size=12, weight=ft.FontWeight.BOLD, color=theme.TEXT_MUTED),
+                other_grid,
             ],
-            spacing=2,
+            spacing=8,
         ),
     )
 
@@ -483,20 +615,8 @@ def build_home_view(app) -> ft.Control:
             )
         )
 
-    quick_access = ft.Column(
-        [
-            ft.Row(
-                [ft.Icon(ft.Icons.APP_SHORTCUT, color=theme.PRIMARY, size=18),
-                 ft.Text("Accesso rapido", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT)],
-                spacing=6,
-            ),
-            ft.Row(pill_row, spacing=8, scroll=ft.ScrollMode.AUTO),
-        ],
-        spacing=10,
-    )
-
-    # ---------- 7. Contenuto scorrevole ----------
-    annual_card = _annual_dots_card(app, storico_list)
+    # ---------- 7. Contenuto scorrevole (senza Accesso rapido, ora fisso in basso) ----------
+    annual_card = _annual_calendar_card(app, storico_list)
 
     main_content = ft.ListView(
         [
@@ -511,18 +631,15 @@ def build_home_view(app) -> ft.Control:
             ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
             *history_controls,
             ft.Divider(color=theme.BORDER, height=16),
-            quick_access,
-            ft.Divider(color=theme.BORDER, height=16),
             annual_card,
         ],
         expand=True,
         spacing=8,
-        padding=ft.padding.only(bottom=90),
+        padding=ft.padding.only(top=18, bottom=12),
     )
 
     # ---------- 8. FAB "INIZIA WORKOUT" ----------
     def _avvia_workout(e):
-        # feedback "a pressione" sull'FAB
         fab.scale = 0.93
         fab.update()
         try:
@@ -542,19 +659,19 @@ def build_home_view(app) -> ft.Control:
     fab = ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=28, color="white"),
+                ft.Icon(ft.Icons.PLAY_ARROW_ROUNDED, size=26, color="white"),
                 ft.Text("INIZIA WORKOUT", size=16, weight=ft.FontWeight.BOLD, color="white"),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=6,
         ),
-        padding=ft.padding.symmetric(horizontal=28, vertical=18),
+        padding=ft.padding.symmetric(horizontal=30, vertical=16),
         gradient=ft.LinearGradient(
             begin=ft.alignment.center_left,
             end=ft.alignment.center_right,
             colors=[theme.GRADIENT_START, theme.GRADIENT_END],
         ),
-        border_radius=32,
+        border_radius=30,
         shadow=ft.BoxShadow(spread_radius=2, blur_radius=24, color="#FF6B0088", offset=ft.Offset(0, 6)),
         ink=True,
         opacity=0,
@@ -563,6 +680,33 @@ def build_home_view(app) -> ft.Control:
         animate_offset=ft.Animation(500, ft.AnimationCurve.EASE_OUT),
         animate_scale=ft.Animation(150, ft.AnimationCurve.EASE_OUT),
         on_click=_avvia_workout,
+    )
+
+    # ---------- 9. Barra fissa in basso (sempre visibile): FAB + Accesso rapido ----------
+    accesso_rapido_bar = ft.Container(
+        content=ft.Row(
+            [ft.Icon(ft.Icons.APP_SHORTCUT, color=theme.PRIMARY, size=16),
+             ft.Text("Accesso rapido", size=12, weight=ft.FontWeight.BOLD, color=theme.TEXT_MUTED)],
+            spacing=6,
+        ),
+        padding=ft.padding.only(bottom=6),
+    )
+
+    bottom_bar = ft.Container(
+        content=ft.Column(
+            [
+                fab,
+                accesso_rapido_bar,
+                ft.Row(pill_row, spacing=8, scroll=ft.ScrollMode.AUTO),
+            ],
+            spacing=6,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.padding.only(top=12, bottom=6, left=12, right=12),
+        bgcolor=theme.BG_CARD,
+        border_radius=ft.border_radius.only(top_left=22, top_right=22),
+        border=ft.border.only(top=ft.BorderSide(1, theme.BORDER)),
+        shadow=ft.BoxShadow(blur_radius=24, color="#00000066", offset=ft.Offset(0, -4)),
     )
 
     # Programma l'ingresso animato (fade + salita) a scaglioni
@@ -575,19 +719,13 @@ def build_home_view(app) -> ft.Control:
         except Exception:
             pass
 
-    return ft.Stack(
+    return ft.Column(
         [
             main_content,
-            ft.Container(
-                content=fab,
-                alignment=ft.alignment.center,
-                bgcolor=ft.Colors.with_opacity(0.0, theme.BG),
-                left=0,
-                right=0,
-                bottom=16,
-            ),
+            bottom_bar,
         ],
         expand=True,
+        spacing=0,
     )
 
 

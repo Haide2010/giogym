@@ -59,6 +59,16 @@ DATA_FILENAME = "giogym_data.json"
 DEFAULT_DATA = {
     "scheda": {"giorni": []},
     "storico": [],
+    "profilo": {
+        "altezza_cm": 175,
+        "peso_attuale_kg": 68.5,
+        "peso_obiettivo_kg": 72.0,
+        "frequenza_settimanale": 4,
+        "eta": 25,
+        "sesso": "M",
+    },
+    "peso_corporeo": [],
+    "infortuni": [],
 }
 
 
@@ -84,8 +94,10 @@ def load_data() -> dict:
         # Garantisce che le chiavi principali esistano sempre
         data.setdefault("scheda", {"giorni": []})
         data["scheda"].setdefault("giorni", [])
-        data["scheda"].setdefault("aggiornata_il", None)
         data.setdefault("storico", [])
+        data.setdefault("profilo", DEFAULT_DATA["profilo"])
+        data.setdefault("peso_corporeo", [])
+        data.setdefault("infortuni", [])
         return data
     except (json.JSONDecodeError, OSError):
         # File corrotto: non lo sovrascriviamo subito (evitiamo perdita
@@ -106,24 +118,19 @@ def today_str() -> str:
 
 
 def new_esercizio(nome: str = "", serie: int = 3, ripetizioni: str = "8-12",
-                   peso_riferimento: float = 0.0, rest_seconds: int = 90) -> dict:
-    """Factory per un esercizio vuoto/precompilato, usata dall'editor scheda.
-    rest_seconds è il tempo di recupero specifico per questo esercizio,
-    usato dal Rest Timer durante l'allenamento al posto (o in aggiunta)
-    del valore predefinito di sessione."""
+                   peso_riferimento: float = 0.0) -> dict:
+    """Factory per un esercizio vuoto/precompilato, usata dall'editor scheda."""
     return {
         "nome": nome,
         "serie": serie,
         "ripetizioni": ripetizioni,
         "peso_riferimento": peso_riferimento,
-        "rest_seconds": rest_seconds,
     }
 
 
-def new_giorno(nome: str = "Giorno", note: str = "") -> dict:
-    """Factory per un giorno vuoto della scheda. note è un campo libero
-    (es. "oggi scarico, -20% carichi") mostrato anche in selezione."""
-    return {"nome": nome, "esercizi": [], "note": note}
+def new_giorno(nome: str = "Giorno") -> dict:
+    """Factory per un giorno vuoto della scheda."""
+    return {"nome": nome, "esercizi": []}
 
 
 # ----------------------------------------------------------------------
@@ -139,21 +146,6 @@ def export_data_to_json(data: dict) -> str:
         "esportato_il": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "scheda": data.get("scheda", {"giorni": []}),
         "storico": data.get("storico", []),
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
-
-
-def export_schema_to_json(data: dict) -> str:
-    """Esporta SOLO la scheda (senza lo storico personale), utile per
-    condividere il proprio programma di allenamento con altri senza
-    rivelare i propri dati di allenamento passati."""
-    payload = {
-        "app": "GioGym",
-        "versione_backup": 1,
-        "tipo": "solo_scheda",
-        "esportato_il": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "scheda": data.get("scheda", {"giorni": []}),
-        "storico": [],
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -177,16 +169,15 @@ class ImportError_(Exception):
 def validate_backup_dict(parsed: dict) -> dict:
     """Verifica che il dizionario importato abbia la struttura minima
     attesa e ritorna un dizionario dati pulito e pronto all'uso.
-    Solleva ImportError_ se la struttura non è valida.
-    Lo storico è opzionale (un backup "solo scheda" è comunque valido)."""
+    Solleva ImportError_ se la struttura non è valida."""
     if not isinstance(parsed, dict):
         raise ImportError_("Il file non contiene un oggetto JSON valido.")
 
     scheda = parsed.get("scheda")
-    storico = parsed.get("storico", [])
+    storico = parsed.get("storico")
 
-    if scheda is None:
-        raise ImportError_("Il file non sembra un backup di GioGym (chiave 'scheda' mancante).")
+    if scheda is None or storico is None:
+        raise ImportError_("Il file non sembra un backup di GioGym (chiavi 'scheda'/'storico' mancanti).")
 
     if not isinstance(scheda, dict) or "giorni" not in scheda or not isinstance(scheda["giorni"], list):
         raise ImportError_("La sezione 'scheda' del backup non è valida.")

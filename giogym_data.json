@@ -1,0 +1,16 @@
+{
+  "scheda": {
+    "giorni": []
+  },
+  "storico": [],
+  "profilo": {
+    "altezza_cm": 175,
+    "peso_attuale_kg": 68.5,
+    "peso_obiettivo_kg": 72.0,
+    "frequenza_settimanale": 4,
+    "eta": 25,
+    "sesso": "M"
+  },
+  "peso_corporeo": [],
+  "infortuni": []
+}

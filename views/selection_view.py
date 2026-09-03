@@ -2,7 +2,6 @@
 selection_view.py
 -----------------
 Schermata di selezione del giorno di allenamento da avviare.
-Mostra i giorni programmati nella scheda e le eventuali note giornaliere.
 """
 
 import flet as ft
@@ -31,20 +30,21 @@ def build_selection_view(app) -> ft.Control:
         for giorno in giorni_scheda:
             nome_giorno = giorno.get("nome", "Giorno")
             num_es = len(giorno.get("esercizi", []))
-            nota = giorno.get("nota_giorno", "").strip()
-            
-            # Colonna descrittiva del giorno con eventuale nota visibile
-            text_column = ft.Column(
-                [
-                    ft.Text(nome_giorno, size=16, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ft.Text(f"{num_es} esercizi programmati", size=12, color=theme.TEXT_MUTED),
-                ],
-                spacing=2,
-            )
-            
+            nota = giorno.get("note", "").strip()
+
+            info_column_controls = [
+                ft.Text(nome_giorno, size=16, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                ft.Text(f"{num_es} esercizi programmati", size=12, color=theme.TEXT_MUTED),
+            ]
             if nota:
-                text_column.controls.append(
-                    ft.Text(f"📝 {nota}", size=11, color=theme.INFO, italic=True)
+                info_column_controls.append(
+                    ft.Row(
+                        [
+                            ft.Icon(ft.Icons.STICKY_NOTE_2_OUTLINED, size=13, color=theme.WARNING),
+                            ft.Text(nota, size=11, color=theme.WARNING, italic=True),
+                        ],
+                        spacing=4,
+                    )
                 )
 
             card = ft.Container(
@@ -58,7 +58,7 @@ def build_selection_view(app) -> ft.Control:
                                     bgcolor=theme.BG_CARD_LIGHT if hasattr(theme, "BG_CARD_LIGHT") else "#2a2a2a",
                                     border_radius=10,
                                 ),
-                                text_column,
+                                ft.Column(info_column_controls, spacing=2),
                             ],
                             spacing=12,
                         ),
@@ -71,6 +71,7 @@ def build_selection_view(app) -> ft.Control:
                 border_radius=14,
                 border=ft.border.all(1, theme.BORDER),
                 ink=True,
+                # CORRETTO: Passiamo direttamente l'intero oggetto 'giorno' invece dell'indice numerico
                 on_click=lambda e, g=giorno: app.show_training(g),
                 tooltip=f"Avvia {nome_giorno}",
             )

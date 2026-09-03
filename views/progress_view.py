@@ -122,7 +122,7 @@ def build_progress_view(app) -> ft.Control:
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.TRENDING_UP if delta_peso >= 0 else ft.Icons.TRENDING_DOWN,
-                               size=16, color=delta_color),
+                                 size=16, color=delta_color),
                         ft.Text(delta_str, size=13, weight=ft.FontWeight.BOLD, color=delta_color),
                     ],
                     spacing=4,
@@ -151,6 +151,13 @@ def build_progress_view(app) -> ft.Control:
                         ],
                         spacing=8,
                     )
+                ),
+                ft.TextButton(
+                    content=ft.Row(
+                        [ft.Icon(ft.Icons.HISTORY, size=15, color=theme.INFO), ft.Text("Vedi cronologia completa", size=12, color=theme.INFO)],
+                        spacing=6,
+                    ),
+                    on_click=lambda e, nome=nome_esercizio: app.show_exercise_history(nome, "progress"),
                 ),
             ]
         )

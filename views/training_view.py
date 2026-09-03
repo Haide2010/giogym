@@ -25,12 +25,11 @@ def _parse_target_reps(ripetizioni_str: str) -> str:
 
 
 class TrainingView:
-    def __init__(self, app, giorno_index: int, edit_session: dict = None, edit_index: int = None):
+    def __init__(self, app, giorno_index: int):
         self.app = app
         self.page = app.page
         self.giorno_index = giorno_index
-        self.edit_session = edit_session
-        self.edit_index = edit_index
+        self.giorno = app.data["scheda"]["giorni"][giorno_index]
 
         # --- Cronometro Globale Sessione ---
         self.session_start_time = datetime.now()
@@ -38,54 +37,26 @@ class TrainingView:
         self.global_timer_running = True
         self.global_timer_text = ft.Text("00:00", size=14, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)
 
+        # Stato di sessione
+        self.session = []
+        for esercizio in self.giorno["esercizi"]:
+            n_serie = max(1, int(esercizio.get("serie", 3)))
+            serie_list = [
+                {
+                    "peso": esercizio.get("peso_riferimento", 0),
+                    "reps": _parse_target_reps(esercizio.get("ripetizioni", "")),
+                    "completata": False,
+                }
+                for _ in range(n_serie)
+            ]
+            self.session.append(serie_list)
+
         self._check_buttons = {}
         self._note_fields = {}
 
-        # Modalità MODIFICA: carica uno stato già esistente da una sessione passata
-        if edit_session is not None:
-            self.giorno = {
-                "nome": edit_session.get("giorno_nome", "Allenamento"),
-                "esercizi": [
-                    {
-                        "nome": ex.get("nome", ""),
-                        "serie": len(ex.get("serie_svolte", [])),
-                        "peso_riferimento": ex.get("serie_svolte", [])[-1].get("peso", 0) if ex.get("serie_svolte") else 0,
-                        "ripetizioni": "",
-                    }
-                    for ex in edit_session.get("esercizi", [])
-                ],
-            }
-            # Preserva esattamente peso/reps/completata di ogni serie salvata
-            self.session = [
-                [dict(s) for s in ex.get("serie_svolte", [])]
-                for ex in edit_session.get("esercizi", [])
-            ]
-            # Note per esercizio salvate in precedenza (se presenti)
-            self._session_notes = {
-                i: ex.get("note", "")
-                for i, ex in enumerate(edit_session.get("esercizi", []))
-            }
-        else:
-            self.giorno = app.data["scheda"]["giorni"][giorno_index]
-            self._session_notes = {}
-            # Stato di sessione nuovo (da zero)
-            self.session = []
-            for esercizio in self.giorno["esercizi"]:
-                n_serie = max(1, int(esercizio.get("serie", 3)))
-                serie_list = [
-                    {
-                        "peso": esercizio.get("peso_riferimento", 0),
-                        "reps": _parse_target_reps(esercizio.get("ripetizioni", "")),
-                        "completata": False,
-                    }
-                    for _ in range(n_serie)
-                ]
-                self.session.append(serie_list)
-
-        # Campo note generali della sessione (precaricato se in modifica)
+        # Campo note generali della sessione
         self.general_notes_field = ft.TextField(
             label="Note generali della sessione (es. riscaldamento, energie...)",
-            value=(edit_session or {}).get("note_generali", ""),
             text_size=13,
             dense=True,
             border_color=theme.BORDER,
@@ -95,6 +66,7 @@ class TrainingView:
         # --- Stato Rest Timer ---
         self.rest_default_seconds = REST_DEFAULT_SECONDS
         self.rest_seconds_remaining = self.rest_default_seconds
+        self._rest_durata_corrente = self.rest_default_seconds
         self.rest_running = False
 
         self.timer_text = ft.Text("01:30", size=48, weight=ft.FontWeight.BOLD, color=theme.TEXT)
@@ -230,7 +202,7 @@ class TrainingView:
 
     def _build_esercizio_card(self, ex_idx: int, esercizio: dict) -> ft.Control:
         ex_name = esercizio.get("nome", "Esercizio")
-        target = f'{esercizio.get("ripetizioni", "-")} reps · rif. {esercizio.get("peso_riferimento", 0)} kg'
+        target = f'{esercizio.get("ripetizioni", "-")} reps · rif. {esercizio.get("peso_riferimento", 0)} kg · recupero {esercizio.get("rest_seconds", 90)}s'
         last_perf = self._get_last_performance(ex_name)
 
         serie_rows = ft.Column(spacing=6)
@@ -239,7 +211,6 @@ class TrainingView:
 
         note_field = ft.TextField(
             label="Note esercizio (es. pump, aumentare carico...)",
-            value=self._session_notes.get(ex_idx, ""),
             text_size=12,
             dense=True,
             border_color=theme.BORDER,
@@ -332,13 +303,21 @@ class TrainingView:
         self.page.update()
 
         if serie["completata"]:
-            self._start_rest_timer()
+            self._start_rest_timer(ex_idx)
 
     def _on_default_duration_change(self, e):
         self.rest_default_seconds = int(self.rest_slider.value)
 
-    def _start_rest_timer(self):
-        self.rest_seconds_remaining = self.rest_default_seconds
+    def _start_rest_timer(self, ex_idx: int = None):
+        # Usa il recupero specifico dell'esercizio se impostato in
+        # scheda, altrimenti il valore predefinito di sessione (slider).
+        durata = self.rest_default_seconds
+        if ex_idx is not None:
+            esercizio = self.giorno["esercizi"][ex_idx]
+            durata = int(esercizio.get("rest_seconds", self.rest_default_seconds) or self.rest_default_seconds)
+
+        self.rest_seconds_remaining = durata
+        self._rest_durata_corrente = durata
         self.rest_running = True
         self.timer_status.value = "Recupero in corso..."
         self.timer_status.color = theme.TEXT_MUTED
@@ -373,7 +352,7 @@ class TrainingView:
     def _refresh_timer_ui(self):
         mins, secs = divmod(max(0, self.rest_seconds_remaining), 60)
         self.timer_text.value = f"{mins:02d}:{secs:02d}"
-        total = max(1, self.rest_default_seconds)
+        total = max(1, getattr(self, "_rest_durata_corrente", self.rest_default_seconds))
         self.timer_progress.value = max(0.0, self.rest_seconds_remaining / total)
 
         if self.rest_seconds_remaining <= REST_WARNING_THRESHOLD and self.rest_seconds_remaining > 0:
@@ -423,10 +402,10 @@ class TrainingView:
         confirm_dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Terminare l'allenamento?"),
-            content=ft.Text("Vedrai il riepilogo finale con statistiche, foto, manubri e nota, poi l'allenamento verrà salvato."),
+            content=ft.Text("L'allenamento verrà salvato nello storico e i pesi di riferimento aggiornati."),
             actions=[
                 ft.TextButton("Annulla", on_click=lambda ev: self.page.close(confirm_dialog)),
-                ft.TextButton("Termina", on_click=conferma),
+                ft.TextButton("Termina e salva", on_click=conferma),
             ],
         )
         self.page.open(confirm_dialog)
@@ -444,6 +423,13 @@ class TrainingView:
                 "note": note_text
             })
 
+            if serie_svolte:
+                ultimo_peso = serie_svolte[-1]["peso"]
+                try:
+                    self.app.data["scheda"]["giorni"][self.giorno_index]["esercizi"][ex_idx]["peso_riferimento"] = float(ultimo_peso)
+                except (ValueError, TypeError):
+                    pass
+
         # Formatta la durata totale trascorsa in una stringa leggibile (es. "1h 12m" o "45m")
         m, s = divmod(self.elapsed_seconds, 60)
         h, m = divmod(m, 60)
@@ -458,35 +444,48 @@ class TrainingView:
         }
 
         # Rileva eventuali nuovi Record Personali confrontando lo storico
-        # PRIMA e DOPO l'inserimento di questa sessione, per poterli
-        # celebrare con un badge a fine allenamento. In modalità modifica
-        # di un allenamento passato i record non vengono ricalcolati.
-        if self.edit_session is not None:
-            nuovi_pr = []
+        # prima e dopo l'inserimento di questa sessione, per poterli
+        # celebrare con un badge a fine allenamento.
+        nuovi_pr = pr_manager.detect_new_prs(self.app.data.get("storico", []), sessione)
+
+        self.app.data["storico"].append(sessione)
+        self.app.save()
+
+        if nuovi_pr:
+            self._mostra_badge_pr(nuovi_pr)
         else:
-            nuovi_pr = pr_manager.detect_new_prs(self.app.data.get("storico", []), sessione)
+            self.app.show_home()
 
-        # Apre il riepilogo finale (statistiche, foto, manubri, note): la
-        # sessione viene registrata/sovrascritta SOLO alla conferma.
-        self.app.show_workout_summary(
-            sessione,
-            nuovi_pr,
-            modify_index=self.edit_index,
+    def _mostra_badge_pr(self, nuovi_pr: list):
+        """Mostra un dialog celebrativo con i nuovi record raggiunti in
+        questa sessione, poi torna alla Home."""
+
+        def _chiudi(ev):
+            self.page.close(dlg)
+            self.app.show_home()
+
+        righe = [
+            ft.Text(msg, size=13, color=theme.TEXT, weight=ft.FontWeight.BOLD)
+            for msg in nuovi_pr
+        ]
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.BG_CARD,
+            title=ft.Row(
+                [ft.Icon(ft.Icons.EMOJI_EVENTS, color=theme.GOLD, size=28),
+                 ft.Text("Nuovi Record! 🎉", color=theme.TEXT, weight=ft.FontWeight.BOLD)],
+                spacing=8,
+            ),
+            content=ft.Column(righe, spacing=8, tight=True),
+            actions=[ft.ElevatedButton("Fantastico!", bgcolor=theme.PRIMARY, color="white", on_click=_chiudi)],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
         )
+        self.page.open(dlg)
 
 
-def build_training_view(app, giorno_selezionato: dict, edit_session: dict = None, edit_index: int = None) -> ft.Control:
-    """Funzione helper per compatibilità con il router principale.
-
-    - Se `edit_session` è fornito apre la schermata in modalità MODIFICA,
-      ricaricando esattamente lo stato (pesi, reps, spunte, note) della
-      sessione passata. Al salvataggio l'allenamento viene sovrascritto.
-    - Altrimenti avvia un allenamento nuovo per il giorno selezionato.
-    """
-    if edit_session is not None:
-        view_instance = TrainingView(app, -1, edit_session=edit_session, edit_index=edit_index)
-        return view_instance.build()
-
+def build_training_view(app, giorno_selezionato: dict) -> ft.Control:
+    """Funzione helper per compatibilità con il router principale."""
     # Trova l'indice del giorno selezionato all'interno della scheda
     giorni = app.data["scheda"]["giorni"]
     g_idx = 0
@@ -494,6 +493,6 @@ def build_training_view(app, giorno_selezionato: dict, edit_session: dict = None
         if g.get("nome") == giorno_selezionato.get("nome"):
             g_idx = idx
             break
-
+    
     view_instance = TrainingView(app, g_idx)
     return view_instance.build()

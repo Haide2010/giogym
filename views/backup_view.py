@@ -68,13 +68,33 @@ def build_backup_view(app) -> ft.Control:
 
     open_picker = ft.FilePicker(on_result=_open_result)
 
+    def _save_solo_scheda_result(ev: ft.FilePickerResultEvent):
+        if not ev.path:
+            return
+        try:
+            path = ev.path if ev.path.lower().endswith(".json") else ev.path + ".json"
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(dm.export_schema_to_json(app.data))
+            _mostra_stato(f"Scheda (senza storico) salvata in: {path}", theme.SUCCESS)
+        except OSError as exc:
+            _mostra_stato(f"Errore durante il salvataggio: {exc}", theme.DANGER)
+
+    solo_scheda_picker = ft.FilePicker(on_result=_save_solo_scheda_result)
+
     if app.page and (save_picker not in app.page.overlay):
-        app.page.overlay.extend([save_picker, open_picker])
+        app.page.overlay.extend([save_picker, open_picker, solo_scheda_picker])
 
     def _esporta_su_file(e):
         save_picker.save_file(
             dialog_title="Salva backup GioGym",
             file_name="giogym_backup.json",
+            allowed_extensions=["json"],
+        )
+
+    def _esporta_solo_scheda(e):
+        solo_scheda_picker.save_file(
+            dialog_title="Salva scheda GioGym (senza storico)",
+            file_name="giogym_scheda.json",
             allowed_extensions=["json"],
         )
 
@@ -99,6 +119,22 @@ def build_backup_view(app) -> ft.Control:
                     spacing=8,
                 ),
                 on_click=_copia_negli_appunti,
+            ),
+        ],
+        spacing=10,
+        wrap=True,
+    )
+
+    condividi_scheda_row = ft.Row(
+        [
+            ft.OutlinedButton(
+                content=ft.Row(
+                    [ft.Icon(ft.Icons.SHARE_OUTLINED, color=theme.INFO if hasattr(theme, "INFO") else theme.TEXT),
+                     ft.Text("Condividi solo la scheda (senza storico)")],
+                    spacing=8,
+                ),
+                tooltip="Esporta solo il tuo programma di allenamento, senza i dati personali dello storico",
+                on_click=_esporta_solo_scheda,
             ),
         ],
         spacing=10,
@@ -224,6 +260,15 @@ def build_backup_view(app) -> ft.Control:
             ),
             export_actions,
             json_preview_field,
+            ft.Divider(color=theme.BORDER, height=12),
+            ft.Text("Condividi solo il programma", size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+            ft.Text(
+                "Vuoi prestare la tua scheda a un amico senza mostrargli il tuo "
+                "storico personale? Esporta solo la parte 'scheda'.",
+                size=11,
+                color=theme.TEXT_MUTED,
+            ),
+            condividi_scheda_row,
             ft.Divider(color=theme.BORDER, height=20),
             ft.Text("Importa dati da backup", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
             ft.Text(

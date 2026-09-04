@@ -6,7 +6,7 @@ Schermata C + D - Training Attivo, Rest Timer e nuove funzioni avanzate.
 
 import asyncio
 import re
-from datetime import datetime
+import time
 
 import flet as ft
 import theme
@@ -34,7 +34,10 @@ class TrainingView:
         self.edit_index = edit_index
 
         # --- Cronometro Globale Sessione ---
-        self.session_start_time = datetime.now()
+        # Basato su time.monotonic(): il tempo trascorso viene ricalcolato
+        # dal timestamp a ogni aggiornamento, quindi resta corretto anche se
+        # l'app va in background o lo schermo si spegne per un po'.
+        self.session_start_monotonic = time.monotonic()
         self.elapsed_seconds = 0
         self.global_timer_running = True
         self.global_timer_text = ft.Text("00:00", size=14, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)
@@ -96,9 +99,13 @@ class TrainingView:
 
         # --- Stato Rest Timer ---
         self.rest_default_seconds = REST_DEFAULT_SECONDS
-        self.rest_seconds_remaining = self.rest_default_seconds
         self.rest_running = False
         self.timer_dialog_open = False
+        # Timestamp assoluto (epoch) in cui il recupero deve terminare. Il
+        # countdown viene sempre ricalcolato da questo istante, così anche se
+        # l'app va in background / lo schermo si spegne, al rientro il tempo
+        # residuo è quello reale (o è già scaduto).
+        self.rest_end_time = None
 
         self.timer_text = ft.Text("01:30", size=48, weight=ft.FontWeight.BOLD, color=theme.TEXT)
         self.timer_status = ft.Text("Recupero in corso...", size=13, color=theme.TEXT_MUTED)
@@ -417,8 +424,9 @@ class TrainingView:
     async def _global_timer_loop(self):
         """Aggiorna ogni secondo il cronometro globale della sessione."""
         while self.global_timer_running:
-            await asyncio.sleep(1)
-            self.elapsed_seconds += 1
+            # Ricalcola sempre dal timestamp di inizio: così il totale è
+            # corretto anche dopo un periodo con l'app in background.
+            self.elapsed_seconds = int(time.monotonic() - self.session_start_monotonic)
             mins, secs = divmod(self.elapsed_seconds, 60)
             hrs, mins = divmod(mins, 60)
             if hrs > 0:
@@ -427,6 +435,7 @@ class TrainingView:
                 self.global_timer_text.value = f"{mins:02d}:{secs:02d}"
             if self.page:
                 self.page.update()
+            await asyncio.sleep(1)
 
     def _update_serie(self, ex_idx, s_idx, campo, value):
         if campo == "peso":
@@ -434,6 +443,11 @@ class TrainingView:
                 value = round(float(value.replace(",", ".")), 2) if value else 0
             except ValueError:
                 value = self.session[ex_idx][s_idx]["peso"]
+        elif campo == "reps":
+            try:
+                value = int(float(str(value).replace(",", "."))) if value else 0
+            except ValueError:
+                value = self.session[ex_idx][s_idx]["reps"]
         self.session[ex_idx][s_idx][campo] = value
 
         # Aggiorna in tempo reale l'etichetta del massimale stimato
@@ -459,7 +473,7 @@ class TrainingView:
         self.rest_default_seconds = int(self.rest_slider.value)
 
     def _start_rest_timer(self):
-        self.rest_seconds_remaining = self.rest_default_seconds
+        self.rest_end_time = time.time() + self.rest_default_seconds
         self.rest_running = True
         self.timer_status.value = "Recupero in corso..."
         self.timer_status.color = theme.TEXT_MUTED
@@ -469,21 +483,42 @@ class TrainingView:
         self.page.run_task(self._countdown_loop)
 
     def _adjust_timer(self, delta_seconds: int):
-        self.rest_seconds_remaining = max(0, min(REST_MAX_SECONDS, self.rest_seconds_remaining + delta_seconds))
-        if self.rest_seconds_remaining > 0:
+        # Se il timer è attivo, sposta il timestamp di fine; altrimenti usa il
+        # valore corrente come base (utile se fermo o appena scaduto).
+        remaining = self._remaining_seconds()
+        if remaining <= 0:
+            base = self.rest_default_seconds
+        else:
+            base = remaining
+        new_remaining = max(0, min(REST_MAX_SECONDS, base + delta_seconds))
+        if new_remaining > 0:
+            # Riconverte il residuo in un nuovo timestamp assoluto.
+            self.rest_end_time = time.time() + new_remaining
             self.rest_running = True
             self.timer_status.value = "Recupero in corso..."
             self.timer_status.color = theme.TEXT_MUTED
+        else:
+            self.rest_end_time = None
+            self.rest_running = False
+            self.timer_status.value = "Tempo scaduto"
         self._refresh_timer_ui()
 
-    async def _countdown_loop(self):
-        while self.rest_seconds_remaining > 0 and self.rest_running:
-            await asyncio.sleep(1)
-            self.rest_seconds_remaining -= 1
-            self._refresh_timer_ui()
+    def _remaining_seconds(self) -> int:
+        """Secondi residui reali calcolati dal timestamp di scadenza."""
+        if self.rest_end_time is None:
+            return 0
+        return max(0, int(self.rest_end_time - time.time()))
 
-        if self.rest_running and self.rest_seconds_remaining <= 0:
-            self._on_timer_finished()
+    async def _countdown_loop(self):
+        while self.rest_running:
+            remaining = self._remaining_seconds()
+            if remaining <= 0:
+                self._on_timer_finished()
+                break
+            self._refresh_timer_ui()
+            await asyncio.sleep(1)
+        # Un ultimo refresh quando il loop termina (es. timer scaduto).
+        self._refresh_timer_ui()
 
     def _on_timer_finished(self):
         self.rest_running = False
@@ -493,15 +528,16 @@ class TrainingView:
         self._refresh_timer_ui()
 
     def _refresh_timer_ui(self):
-        mins, secs = divmod(max(0, self.rest_seconds_remaining), 60)
+        remaining = self._remaining_seconds()
+        mins, secs = divmod(max(0, remaining), 60)
         self.timer_text.value = f"{mins:02d}:{secs:02d}"
         total = max(1, self.rest_default_seconds)
-        self.timer_progress.value = max(0.0, self.rest_seconds_remaining / total)
+        self.timer_progress.value = max(0.0, remaining / total)
 
-        if self.rest_seconds_remaining <= REST_WARNING_THRESHOLD and self.rest_seconds_remaining > 0:
+        if 0 < remaining <= REST_WARNING_THRESHOLD:
             self.timer_text.color = theme.WARNING
             self.timer_progress.color = theme.WARNING
-        elif self.rest_seconds_remaining <= 0:
+        elif remaining <= 0 and self.rest_running:
             self.timer_text.color = theme.DANGER
             self.timer_progress.color = theme.DANGER
         else:
@@ -513,6 +549,7 @@ class TrainingView:
 
     def _close_timer(self):
         self.rest_running = False
+        self.rest_end_time = None
         if self.timer_dialog_open:
             self.timer_dialog_open = False
             try:

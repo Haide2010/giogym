@@ -48,30 +48,10 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
         app.page.open(dlg_conferma)
 
     def riprendi_allenamento(e):
-        """Crea una copia esatta della sessione passata forzando lo stato completato su ogni serie."""
-        esercizi_ripristinati = []
-        for ex in esercizi:
-            serie_ripristinate = []
-            for s in ex.get("serie_svolte", []):
-                # Forziamo explicitamente 'completata' a True se salvata come True o se comunque aveva dei dati validi
-                is_completed = s.get("completata", True)
-                serie_ripristinate.append({
-                    "peso": s.get("peso", 0.0),
-                    "reps": s.get("reps", 0),
-                    "completata": True if is_completed else False
-                })
-            esercizi_ripristinati.append({
-                "nome": ex.get("nome"),
-                "serie_svolte": serie_ripristinate
-            })
-
-        app.allenamento_attivo = {
-            "giorno_nome": f"Ripresa: {giorno_nome}",
-            "esercizi": esercizi_ripristinati
-        }
-
-        if hasattr(app, "show_training"):
-            app.show_training(app.allenamento_attivo)
+        """Riprende l'allenamento ricaricando lo stato esatto (pesi, reps,
+        spunte e note) della sessione, tramite show_training_edit."""
+        if hasattr(app, "show_training_edit"):
+            app.show_training_edit(sessione)
         else:
             app.show_home()
 

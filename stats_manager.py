@@ -14,10 +14,14 @@ SETTIMANE_AVVISO_SCHEDA = 6  # dopo quante settimane senza modifiche avvisare
 
 
 def _parse_date(d_str: str):
-    try:
-        return datetime.strptime(d_str, "%d/%m/%Y").date()
-    except (ValueError, TypeError):
+    if not d_str:
         return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(d_str, fmt).date()
+        except (ValueError, TypeError):
+            continue
+    return None
 
 
 def _sessioni_con_data(storico: list):
@@ -100,7 +104,7 @@ def scheda_da_rivedere(scheda: dict, oggi: date = None) -> dict:
     """Controlla da quanto tempo la scheda non viene aggiornata.
     Ritorna { "avviso": bool, "settimane": int|None }."""
     oggi = oggi or date.today()
-    aggiornata_il = scheda.get("aggiornata_il")
+    aggiornata_il = scheda.get("aggiornata_il") or scheda.get("data_modifica")
     if not aggiornata_il:
         return {"avviso": False, "settimane": None}
 

@@ -369,9 +369,18 @@ def build_home_view(app) -> ft.Control:
 
     # Statistiche
     tot_allenamenti = len(storico_list)
-    media_settimanale = round(tot_allenamenti / max(1, (datetime.now().date() - date(2026, 1, 1)).days // 7), 1)
+    # Media settimane: usa la prima data di allenamento (o oggi) come riferimento,
+    # così il calcolo resta corretto nel tempo (niente date hard-coded).
+    if storico_list:
+        date_storico = [fitness_calc._parse_data(s.get("data")) for s in storico_list]
+        date_valide = [d for d in date_storico if d != datetime.min.date()]
+        prima_data = min(date_valide) if date_valide else date.today()
+        settimane_trascorse = max(1, (date.today() - prima_data).days // 7 + 1)
+        media_settimanale = round(tot_allenamenti / settimane_trascorse, 1)
+    else:
+        media_settimanale = 0.0
     vol_settimana = fitness_calc.volume_settimanale(storico_list, mode="kg")
-    volume_corrente = round(vol_settimana[0][1], 0) if vol_settimana else 0
+    volume_corrente = round(vol_settimana[-1][1], 0) if vol_settimana else 0
     if volume_corrente == int(volume_corrente):
         volume_corrente = int(volume_corrente)
 
@@ -588,6 +597,16 @@ def build_home_view(app) -> ft.Control:
         ]
 
     # ---------- 6. Accesso rapido a "pillole" ----------
+    # Colori accent distintivi per sezione, coerenti alla palette Dark Obsidian.
+    accent_map = {
+        "Scheda": theme.PRIMARY,
+        "Record": theme.GOLD if hasattr(theme, "GOLD") else "#FFC107",
+        "Grafici": theme.INFO if hasattr(theme, "INFO") else "#4DC3FF",
+        "Profilo": theme.SUCCESS,
+        "Infortuni": theme.WARNING if hasattr(theme, "WARNING") else "#FFB300",
+        "Backup": theme.DANGER if hasattr(theme, "DANGER") else "#FF5C5C",
+    }
+
     pills = [
         (ft.Icons.VIEW_LIST, "Scheda", lambda e: app.show_schema_editor()),
         (ft.Icons.EMOJI_EVENTS, "Record", lambda e: app.show_pr()),
@@ -599,16 +618,26 @@ def build_home_view(app) -> ft.Control:
 
     pill_row = []
     for icona, titolo, on_click in pills:
+        accent = accent_map.get(titolo, theme.PRIMARY)
         pill_row.append(
             ft.Container(
                 content=ft.Row(
-                    [ft.Icon(icona, color=theme.PRIMARY, size=16), ft.Text(titolo, size=13, weight=ft.FontWeight.BOLD, color=theme.TEXT)],
-                    spacing=6,
+                    [
+                        ft.Container(
+                            content=ft.Icon(icona, color=accent, size=16),
+                            padding=6,
+                            bgcolor=ft.Colors.with_opacity(0.16, accent),
+                            border_radius=10,
+                        ),
+                        ft.Text(titolo, size=12, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                    ],
+                    spacing=7,
                     alignment=ft.MainAxisAlignment.CENTER,
                 ),
-                padding=ft.padding.symmetric(horizontal=14, vertical=10),
+                padding=ft.padding.symmetric(horizontal=12, vertical=8),
                 bgcolor=theme.BG_CARD_LIGHT,
-                border_radius=24,
+                border_radius=16,
+                border=ft.border.all(1, theme.BORDER),
                 shadow=theme.CARD_SHADOW,
                 ink=True,
                 on_click=on_click,
@@ -635,7 +664,7 @@ def build_home_view(app) -> ft.Control:
         ],
         expand=True,
         spacing=8,
-        padding=ft.padding.only(top=18, bottom=12),
+        padding=ft.padding.only(top=18, bottom=210, left=12, right=12),
     )
 
     # ---------- 8. FAB "INIZIA WORKOUT" ----------

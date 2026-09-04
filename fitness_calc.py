@@ -183,30 +183,36 @@ def settimane_attive(storico: list) -> set:
 
 
 def streak_settimane_consecutive(storico: list, target_settimanale: int) -> int:
-    """Numero di settimane consecutive (fino all'ultima con allenamenti)
-    in cui sono stati completati almeno `target_settimanale` allenamenti."""
-    # Raggruppa per settimana
-    per_settimana = {}
+    """Numero di settimane consecutive (fino alla più recente con allenamenti)
+    in cui sono stati completati almeno `target_settimanale` allenamenti.
+
+    Il conteggio parte dalla settimana più recente in cui c'è almeno un
+    allenamento e procede a ritroso: se una settimana non raggiunge il target
+    o manca del tutto (buco temporale), la streak si interrompe."""
+    target = int(target_settimanale or 0)
+
+    # Raggruppa per lunedì di ogni settimana con almeno un allenamento.
+    per_lunedi = {}
     for s in storico:
         d = _parse_data(s.get("data"))
         if d == datetime.min.date():
             continue
-        iso = d.isocalendar()
-        per_settimana.setdefault((iso[0], iso[1]), 0)
-        per_settimana[(iso[0], iso[1])] += 1
+        lunedi = d - timedelta(days=d.weekday())
+        per_lunedi.setdefault(lunedi, 0)
+        per_lunedi[lunedi] += 1
 
-    # Ordina le settimane dal più recente al più vecchio
-    settimane = sorted(per_settimana.keys(), reverse=True)
+    if not per_lunedi:
+        return 0
 
-    # Parti dalla settimana più recente registrata e conta le consecutivi
-    # che rispettano il target (saltando eventuali settimane senza dati in mezzo
-    # è troppo complesso; contiamo sulle settimane effettivamente allenate).
+    # Parti dal lunedì più recente che ha allenamenti.
+    cursore = max(per_lunedi)
     streak = 0
-    for iso in settimane:
-        if per_settimana[iso] >= int(target_settimanale or 0):
+    for _ in range(len(per_lunedi) + 1):
+        if cursore in per_lunedi and per_lunedi[cursore] >= target:
             streak += 1
         else:
             break
+        cursore -= timedelta(days=7)
     return streak
 
 
@@ -227,6 +233,8 @@ def volume_settimanale(storico: list, mode: str = "kg") -> list:
         agg = aggregato.setdefault(key, {"kg": 0.0, "serie": 0})
         for ex in s.get("esercizi", []):
             for serie in ex.get("serie_svolte", []):
+                if not serie.get("completata"):
+                    continue
                 agg["serie"] += 1
                 peso = float(serie.get("peso", 0) or 0)
                 reps = int(serie.get("reps", 0) or 0)
@@ -246,6 +254,8 @@ def volume_sessione(sessione: dict) -> float:
     tot = 0.0
     for ex in sessione.get("esercizi", []):
         for serie in ex.get("serie_svolte", []):
+            if not serie.get("completata"):
+                continue
             try:
                 tot += float(serie.get("peso", 0) or 0) * int(serie.get("reps", 0) or 0)
             except (TypeError, ValueError):

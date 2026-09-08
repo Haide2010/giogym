@@ -32,6 +32,46 @@ INFO = "#4DC3FF"                # colore info/accento secondario (ciano chiaro)
 GRADIENT_START = "#FF6B00"      # per i gradienti arancioni
 GRADIENT_END = "#FFB300"        # per i gradienti arancioni
 
+# Gradiente della card "hero" della Home (personalizzato per tema)
+HERO_GRADIENT = ["#1E222D", "#26212A"]
+
+# --- Palette tema CHIARO (per chi preferisce la luce) ---
+# Applicata tramite applica_tema(): le costanti di sfondo/testo sovrascritte.
+_PALETTE_CHIARO = {
+    "BG": "#F4F6FB",
+    "BG_CARD": "#FFFFFF",
+    "BG_CARD_LIGHT": "#ECEFF6",
+    "BORDER": "#E1E5EF",
+    "TEXT": "#151A26",
+    "TEXT_MUTED": "#5D6575",
+    "HERO_GRADIENT": ["#FFFFFF", "#FFE3C7"],
+}
+
+
+def applica_tema(tema: str = "scuro") -> None:
+    """Applica la palette scura (default) o chiara alle costanti globali.
+    I colori di accento (PRIMARY, SUCCESS, DANGER, INFO, GOLD) restano
+    invariati perché funzionano su entrambi i fondi."""
+    global BG, BG_CARD, BG_CARD_LIGHT, TEXT, TEXT_MUTED, BORDER, CARD_BG, HERO_GRADIENT
+    if tema == "chiaro":
+        pal = _PALETTE_CHIARO
+        BG = pal["BG"]
+        BG_CARD = pal["BG_CARD"]
+        BG_CARD_LIGHT = pal["BG_CARD_LIGHT"]
+        TEXT = pal["TEXT"]
+        TEXT_MUTED = pal["TEXT_MUTED"]
+        BORDER = pal["BORDER"]
+        HERO_GRADIENT = pal["HERO_GRADIENT"]
+    else:
+        BG = "#0B0F19"
+        BG_CARD = "#1E222D"
+        BG_CARD_LIGHT = "#2A3040"
+        TEXT = "#FFFFFF"
+        TEXT_MUTED = "#8E8E93"
+        BORDER = "#2C313D"
+        HERO_GRADIENT = ["#1E222D", "#26212A"]
+    CARD_BG = BG_CARD
+
 # --- Dimensioni / raggi / ombre ---
 RADIUS = 18
 RADIUS_SMALL = 12
@@ -43,6 +83,22 @@ CARD_SHADOW = ft.BoxShadow(
     spread_radius=1,
     blur_radius=18,
     color="#00000055",
+    offset=ft.Offset(0, 6),
+)
+
+# Ombra più leggera per elementi piccoli (pillole, chip, icone)
+CARD_SHADOW_SOFT = ft.BoxShadow(
+    spread_radius=0,
+    blur_radius=10,
+    color="#00000033",
+    offset=ft.Offset(0, 3),
+)
+
+# Bagliore neon per le azioni principali / stato attivo
+GLOW_SHADOW = ft.BoxShadow(
+    spread_radius=2,
+    blur_radius=26,
+    color="#FF6B0055",
     offset=ft.Offset(0, 6),
 )
 
@@ -73,29 +129,61 @@ def section_title(text: str) -> ft.Text:
     return ft.Text(text, size=TITLE_SIZE, weight=ft.FontWeight.BOLD, color=TEXT)
 
 
+def back_button(on_click=None) -> ft.Container:
+    """Pulsante indietro coerente in tutte le schermate (tondo, con ombra)."""
+    return ft.Container(
+        content=ft.IconButton(
+            icon=ft.Icons.ARROW_BACK,
+            icon_color=TEXT,
+            icon_size=22,
+            on_click=on_click,
+            tooltip="Indietro",
+        ),
+        bgcolor=BG_CARD_LIGHT,
+        border_radius=22,
+        shadow=CARD_SHADOW_SOFT,
+        ink=True,
+    )
+
+
 def card_container(content: ft.Control, **kwargs) -> ft.Container:
-    """Container standard "a card" con sfondo, angoli arrotondati, shadow morbida e padding."""
+    """Container standard "a card" con sfondo, angoli arrotondati, bordo
+    sottile, shadow morbida e padding."""
     return ft.Container(
         content=content,
         bgcolor=kwargs.pop("bgcolor", BG_CARD),
         border_radius=kwargs.pop("border_radius", RADIUS),
         padding=kwargs.pop("padding", PADDING),
         shadow=kwargs.pop("shadow", CARD_SHADOW),
+        border=kwargs.pop("border", ft.border.all(1, BORDER)),
         **kwargs,
     )
 
 
-def primary_button(text: str, on_click=None, expand=False) -> ft.ElevatedButton:
-    """Pulsante primario con gradiente neon per le azioni principali."""
-    return ft.ElevatedButton(
-        content=ft.Text(text, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-        on_click=on_click,
-        expand=expand,
-        style=ft.ButtonStyle(
-            bgcolor={
-                ft.ControlState.DEFAULT: PRIMARY,
-            },
-            padding=ft.padding.symmetric(horizontal=18, vertical=14),
-            shape=ft.RoundedRectangleBorder(radius=RADIUS_SMALL),
+def primary_button(text: str, on_click=None, expand=False, icon=None) -> ft.Container:
+    """Pulsante primario "glow" con gradiente neon: usato per le azioni
+    principali (avvio workout, salvataggi). Ritorna un Container cliccabile."""
+    content_row = ft.Row(
+        [
+            ft.Icon(icon, size=18, color="#FFFFFF") if icon else ft.Container(),
+            ft.Text(text, weight=ft.FontWeight.BOLD, color="#FFFFFF", size=14),
+        ],
+        spacing=8,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+    return ft.Container(
+        content=content_row,
+        alignment=ft.alignment.center,
+        padding=ft.padding.symmetric(horizontal=20, vertical=14),
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.center_left,
+            end=ft.alignment.center_right,
+            colors=[GRADIENT_START, GRADIENT_END],
         ),
+        border_radius=28,
+        shadow=GLOW_SHADOW,
+        expand=expand,
+        ink=True,
+        animate_scale=ft.Animation(140, ft.AnimationCurve.EASE_OUT),
+        on_click=on_click,
     )

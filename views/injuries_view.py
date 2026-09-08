@@ -28,8 +28,7 @@ class InjuriesView:
     def build(self) -> ft.Control:
         header = ft.Row(
             [
-                ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.TEXT,
-                              on_click=lambda e: self.app.show_home()),
+                theme.back_button(lambda e: self.app.show_home()),
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.HEALING, color=theme.WARNING, size=24),

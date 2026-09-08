@@ -65,7 +65,7 @@ def build_pr_view(app) -> ft.Control:
     """Costruisce la schermata dei Record Personali."""
     header = ft.Row(
         [
-            ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.TEXT, on_click=lambda e: app.show_home()),
+            theme.back_button(lambda e: app.show_home()),
             ft.Row(
                 [
                     ft.Icon(ft.Icons.EMOJI_EVENTS, color=theme.GOLD, size=24),

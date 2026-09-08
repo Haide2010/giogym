@@ -50,6 +50,7 @@ In fase di sviluppo (flet run) questa variabile non è impostata, quindi
 si ricade sulla cartella corrente del progetto.
 """
 
+import base64
 import json
 import os
 from datetime import datetime
@@ -60,6 +61,8 @@ DEFAULT_DATA = {
     "scheda": {"giorni": []},
     "storico": [],
     "profilo": {
+        "nome": "",
+        "obiettivo": "",
         "altezza_cm": 175,
         "peso_attuale_kg": 68.5,
         "peso_obiettivo_kg": 72.0,
@@ -69,6 +72,7 @@ DEFAULT_DATA = {
     },
     "peso_corporeo": [],
     "infortuni": [],
+    "tema": "scuro",
 }
 
 
@@ -98,6 +102,7 @@ def load_data() -> dict:
         data.setdefault("profilo", DEFAULT_DATA["profilo"])
         data.setdefault("peso_corporeo", [])
         data.setdefault("infortuni", [])
+        data.setdefault("tema", "scuro")
         return data
     except (json.JSONDecodeError, OSError):
         # File corrotto: non lo sovrascriviamo subito (evitiamo perdita
@@ -137,15 +142,39 @@ def new_giorno(nome: str = "Giorno") -> dict:
 # Backup: esportazione / importazione dati (JSON)
 # ----------------------------------------------------------------------
 
+def _storico_con_foto_b64(storico: list) -> list:
+    """Copia dello storico in cui ogni sessione con una foto su disco
+    viene arricchita con 'foto_b64' (contenuto binario codificato in
+    base64) così la foto fa parte del file di backup."""
+    output = []
+    for sessione in storico:
+        copia = dict(sessione)
+        foto = sessione.get("foto", "")
+        if foto and os.path.exists(foto):
+            try:
+                with open(foto, "rb") as f:
+                    copia["foto_b64"] = base64.b64encode(f.read()).decode("ascii")
+            except OSError:
+                pass
+        output.append(copia)
+    return output
+
+
 def export_data_to_json(data: dict) -> str:
     """Serializza l'intero dizionario dati in una stringa JSON leggibile,
-    pronta per essere scritta su file e condivisa/trasferita."""
+    pronta per essere scritta su file e condivisa/trasferita. Il backup
+    include scheda, storico (con le foto), profilo, peso corporeo,
+    infortuni e colore del tema scelto."""
     payload = {
         "app": "GioGym",
-        "versione_backup": 1,
+        "versione_backup": 2,
         "esportato_il": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "scheda": data.get("scheda", {"giorni": []}),
-        "storico": data.get("storico", []),
+        "storico": _storico_con_foto_b64(data.get("storico", [])),
+        "profilo": data.get("profilo", {}),
+        "peso_corporeo": data.get("peso_corporeo", []),
+        "infortuni": data.get("infortuni", []),
+        "primary_color": data.get("primary_color"),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -185,18 +214,58 @@ def validate_backup_dict(parsed: dict) -> dict:
     if not isinstance(storico, list):
         raise ImportError_("La sezione 'storico' del backup non è valida.")
 
-    return {"scheda": scheda, "storico": storico}
+    return {
+        "scheda": scheda,
+        "storico": storico,
+        "profilo": parsed.get("profilo") if isinstance(parsed.get("profilo"), dict) else {},
+        "peso_corporeo": parsed.get("peso_corporeo") if isinstance(parsed.get("peso_corporeo"), list) else [],
+        "infortuni": parsed.get("infortuni") if isinstance(parsed.get("infortuni"), list) else [],
+        "primary_color": parsed.get("primary_color") if isinstance(parsed.get("primary_color"), str) else None,
+    }
+
+
+def _ripristina_foto(storico: list) -> None:
+    """Per ogni sessione con 'foto_b64' scrive il file immagine nella
+    cartella dati dell'app e aggiorna il campo 'foto' col nuovo percorso
+    (eliminando la voce base64)."""
+    data_dir = os.path.dirname(get_data_path())
+    os.makedirs(data_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    contatore = 0
+    for sessione in storico:
+        b64 = sessione.pop("foto_b64", None)
+        if not b64:
+            continue
+        try:
+            payload = base64.b64decode(b64)
+        except Exception:
+            continue
+        if not payload:
+            continue
+        contatore += 1
+        estensione = os.path.splitext(str(sessione.get("foto", "")))[1] or ".jpg"
+        nome = f"workout_{timestamp}_{contatore}{estensione}"
+        try:
+            with open(os.path.join(data_dir, nome), "wb") as f:
+                f.write(payload)
+            sessione["foto"] = os.path.join(data_dir, nome)
+        except OSError:
+            pass
 
 
 def import_data_from_json(json_str: str) -> dict:
     """Importa i dati da una stringa JSON di backup, validandone la
     struttura. Ritorna un dizionario dati pronto per sostituire quello
-    corrente. Solleva ImportError_ in caso di file non valido."""
+    corrente (include scheda, storico con foto ripristinate, profilo,
+    peso corporeo, infortuni e colore tema). Solleva ImportError_ in
+    caso di file non valido."""
     try:
         parsed = json.loads(json_str)
     except json.JSONDecodeError as exc:
         raise ImportError_(f"File JSON non leggibile: {exc}") from exc
-    return validate_backup_dict(parsed)
+    dati = validate_backup_dict(parsed)
+    _ripristina_foto(dati["storico"])
+    return dati
 
 
 def merge_imported_data(current: dict, imported: dict) -> dict:
@@ -224,4 +293,8 @@ def merge_imported_data(current: dict, imported: dict) -> dict:
     return {
         "scheda": imported.get("scheda", current.get("scheda", {"giorni": []})),
         "storico": merged_storico,
+        "profilo": imported.get("profilo") or current.get("profilo", {}),
+        "peso_corporeo": imported.get("peso_corporeo") or current.get("peso_corporeo", []),
+        "infortuni": imported.get("infortuni") or current.get("infortuni", []),
+        "primary_color": imported.get("primary_color") or current.get("primary_color"),
     }

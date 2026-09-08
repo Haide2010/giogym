@@ -22,19 +22,27 @@ from views.settings_view import build_settings_view
 from views.workout_summary_view import build_workout_summary_view
 from views.profile_view import build_profile_view
 from views.injuries_view import build_injuries_view
+from views.onboarding_view import build_onboarding_view
+from views.body_view import build_body_view
+from views.diet_view import build_diet_view
 
 
 class GioGymApp:
     def __init__(self, page: ft.Page):
         self.page = page
         self.page.title = "GioGym"
-        self.page.theme_mode = ft.ThemeMode.DARK
+        self.data = data_manager.load_data()
+
+        # Applica il tema salvato (scuro di default; chiaro se scelto)
+        tema_salvato = (self.data.get("tema") or "scuro").lower()
+        theme.applica_tema(tema_salvato)
+        if tema_salvato == "chiaro":
+            self.page.theme_mode = ft.ThemeMode.LIGHT
+        else:
+            self.page.theme_mode = ft.ThemeMode.DARK
         self.page.theme = theme.page_theme() if hasattr(theme, "page_theme") else None
         self.page.bgcolor = theme.BG
         self.page.padding = 16
-
-        # Caricamento dati
-        self.data = data_manager.load_data()
 
         # Ripristino del colore tema salvato in precedenza (se esiste)
         primary_color = self.data.get("primary_color")
@@ -53,8 +61,12 @@ class GioGymApp:
         )
         self.page.add(self._switcher)
 
-        # Schermata iniziale
-        self.show_home()
+        # Schermata iniziale: alla prima accensione parte l'onboarding,
+        # altrimenti la Home.
+        if self._onboarding_completato():
+            self.show_home()
+        else:
+            self.show_onboarding()
 
     def _set_content(self, view_control: ft.Control):
         """Imposta la nuova vista, animando la transizione con un cross-fade."""
@@ -123,6 +135,26 @@ class GioGymApp:
         """Schermata Profilo & Nutrizione."""
         view = build_profile_view(self)
         self._set_content(view)
+
+    def show_onboarding(self):
+        """Prima accensione: raccoglie nome, età, peso, obiettivo e frequenza."""
+        view = build_onboarding_view(self)
+        self._set_content(view)
+
+    def show_body(self):
+        """Schermata Peso & Misure."""
+        view = build_body_view(self)
+        self._set_content(view)
+
+    def show_diet(self):
+        """Schermata Dieta & Calorie."""
+        view = build_diet_view(self)
+        self._set_content(view)
+
+    def _onboarding_completato(self) -> bool:
+        """True se il profilo è già stato compilato (basta il nome)."""
+        profilo = self.data.get("profilo", {})
+        return bool((profilo.get("nome") or "").strip())
 
     def show_injuries(self):
         """Schermata Registro Infortuni & Fastidi."""

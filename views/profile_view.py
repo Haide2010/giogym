@@ -18,6 +18,7 @@ import theme
 import fitness_calc
 import data_manager as dm
 import pr_manager
+from views.onboarding_view import OBIETTIVI
 
 
 def _ultimo_peso_corporeo(app) -> float:
@@ -37,8 +38,7 @@ class ProfileView:
     def build(self) -> ft.Control:
         header = ft.Row(
             [
-                ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.TEXT,
-                              on_click=lambda e: self.app.show_home()),
+                theme.back_button(lambda e: self.app.show_home()),
                 ft.Row(
                     [
                         ft.Icon(ft.Icons.PERSON, color=theme.PRIMARY, size=24),
@@ -51,6 +51,8 @@ class ProfileView:
         )
 
         # --- Form dati profilo ---
+        nome = ft.TextField(label="Nome", dense=True,
+                            value=str(self.profilo.get("nome", "") or ""))
         altezza = ft.TextField(label="Altezza (cm)", dense=True, keyboard_type=ft.KeyboardType.NUMBER,
                                value=str(self.profilo.get("altezza_cm", 175)),
                                helper_text="Es. 175")
@@ -70,17 +72,24 @@ class ProfileView:
             options=[ft.dropdown.Option("M", "Maschio"), ft.dropdown.Option("F", "Femmina")],
             value=self.profilo.get("sesso", "M"),
         )
+        obiettivo = ft.Dropdown(
+            label="Obiettivo",
+            options=[ft.dropdown.Option(k, v) for k, v in OBIETTIVI],
+            value=str(self.profilo.get("obiettivo", "") or "") or "massa",
+        )
 
         status_text = ft.Text("", size=12)
 
         def _salva(e):
             try:
+                self.profilo["nome"] = nome.value.strip()
                 self.profilo["altezza_cm"] = float(altezza.value)
                 self.profilo["peso_attuale_kg"] = float(peso_att.value)
                 self.profilo["peso_obiettivo_kg"] = float(peso_ob.value)
                 self.profilo["frequenza_settimanale"] = int(float(freq.value))
                 self.profilo["eta"] = int(float(eta.value))
                 self.profilo["sesso"] = sesso.value or "M"
+                self.profilo["obiettivo"] = obiettivo.value or "massa"
             except (ValueError, TypeError):
                 status_text.value = "Controlla i valori inseriti (numeri validi)."
                 status_text.color = theme.DANGER
@@ -100,9 +109,11 @@ class ProfileView:
                         ft.Text("Dati del profilo", size=theme.SUBTITLE_SIZE,
                                 weight=ft.FontWeight.BOLD, color=theme.TEXT),
                     ], spacing=8),
+                    nome,
                     ft.Row([altezza, peso_att], spacing=8, wrap=True),
                     peso_ob,
                     ft.Row([freq, eta, sesso], spacing=8, wrap=True),
+                    obiettivo,
                     ft.ElevatedButton(
                         content=ft.Row(
                             [ft.Icon(ft.Icons.SAVE, color="white"), ft.Text("Salva profilo", weight=ft.FontWeight.BOLD)],
@@ -117,42 +128,20 @@ class ProfileView:
         )
 
         # --- Registro peso corporeo ---
-        log_status = ft.Text("", size=12)
-        pesoTxt = ft.TextField(label="Peso mattutino (kg)", dense=True, keyboard_type=ft.KeyboardType.NUMBER,
-                               helper_text="Registra il tuo peso di oggi")
-
-        def _salva_peso(e):
-            try:
-                p = float(pesoTxt.value)
-            except (TypeError, ValueError):
-                log_status.value = "Inserisci un peso valido."
-                log_status.color = theme.DANGER
-                self.page.update()
-                return
-            log = self.app.data.setdefault("peso_corporeo", [])
-            log.append({"data": dm.today_str(), "peso": p})
-            self.app.save()
-            pesoTxt.value = ""
-            log_status.value = "Peso registrato!"
-            log_status.color = theme.SUCCESS
-            self._refresh_peso_log(self.peso_log_column)
-            self.page.update()
-
         self.peso_log_column = ft.Column(spacing=4)
         self._refresh_peso_log(self.peso_log_column)
 
         peso_card = theme.card_container(
             ft.Column(
                 [
-                    ft.Row([
-                        ft.Icon(ft.Icons.MONITOR_WEIGHT, color=theme.SUCCESS, size=20),
-                        ft.Text("Registro peso corporeo", size=theme.SUBTITLE_SIZE,
-                                weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                    ], spacing=8),
-                    ft.Row([pesoTxt, ft.ElevatedButton("Registra", bgcolor=theme.SUCCESS, color="white",
-                                                        on_click=_salva_peso)], spacing=8, wrap=True),
+                    ft.Row([ft.Icon(ft.Icons.MONITOR_WEIGHT, color=theme.SUCCESS, size=20),
+                            ft.Text("Peso e misure corpo", size=theme.SUBTITLE_SIZE,
+                                    weight=ft.FontWeight.BOLD, color=theme.TEXT)], spacing=8),
+                    ft.Text("Apri la vista dedicata per andamento, grafico e misure (vita, petto, braccia, gambe).",
+                            size=12, color=theme.TEXT_MUTED),
+                    theme.primary_button("Vedi Peso & Misure", lambda e: self.app.show_body(),
+                                         expand=True, icon=ft.Icons.MONITOR_WEIGHT),
                     self.peso_log_column,
-                    log_status,
                 ],
                 spacing=8,
             ),

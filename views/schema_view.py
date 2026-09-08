@@ -18,6 +18,22 @@ import data_manager as dm
 MAX_GIORNI = 7
 MIN_GIORNI = 1
 
+CATALOGO_ESERCIZI = {
+    "Petto": ["Panca piana", "Panca inclinata", "Panca declinata", "Panca con manubri",
+              "Croci con manubri", "Croci ai cavi", "Spinte con manubri", "Dip tra panche"],
+    "Schiena": ["Trazioni", "Lat machine", "Rematore bilanciere", "Rematore manubrio",
+                "Rematore da seduto ai cavi", "Pullover", "Stacco da terra", "Stacco gambe rigide"],
+    "Gambe": ["Squat", "Squat frontale", "Goblet squat", "Affondi", "Affondi bulgari",
+              "Leg press", "Leg extension", "Leg curl", "Spinta glutei", "Calf raise"],
+    "Spalle": ["Lento avanti", "Lento dietro", "Alzate laterali", "Alzate frontali",
+               "Alzate posteriori", "Shoulder press con manubri", "Shrugs"],
+    "Braccia": ["Curl bilanciere", "Curl manubri", "Curl martello", "Curl concentrato",
+                "French press", "Pushdown ai cavi", "Estensioni tricipiti", "Dip"],
+    "Core": ["Crunch", "Crunch inverso", "Plank", "Side plank", "Leg raise",
+             "Russian twist", "Mountain climber", "Torsione con cavo"],
+    "Cardio": ["Cyclette", "Tapis roulant", "Ellittica", "Rowing machine", "Corda", "Burpees"],
+}
+
 
 class SchemaEditorView:
     """Vista stateful per l'editing della scheda. Lavora su una copia
@@ -33,7 +49,7 @@ class SchemaEditorView:
     def build(self) -> ft.Control:
         header = ft.Row(
             [
-                ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=lambda e: self.app.show_home()),
+                theme.back_button(lambda e: self.app.show_home()),
                 ft.Text("Configura scheda", size=theme.TITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
             ]
         )
@@ -44,14 +60,7 @@ class SchemaEditorView:
             on_click=self._add_giorno,
         )
 
-        save_btn = ft.ElevatedButton(
-            "Salva scheda",
-            icon=ft.Icons.SAVE,
-            bgcolor=theme.PRIMARY,
-            color=ft.Colors.WHITE,
-            height=50,
-            on_click=self._salva,
-        )
+        save_btn = theme.primary_button("Salva scheda", self._salva, expand=True, icon=ft.Icons.SAVE)
 
         self._refresh_giorni_column()
 
@@ -320,14 +329,102 @@ class SchemaEditorView:
         self._refresh_giorni_column()
 
     def _add_esercizio(self, g_idx):
-        self.giorni[g_idx]["esercizi"].append({
-            "nome": "",
-            "serie": 3,
-            "ripetizioni": "8-12",
-            "peso_riferimento": 0,
-            "url_foto": ""
-        })
-        self._refresh_giorni_column()
+        """Apre il catalogo esercizi per scegliere (o scrivere) il nome
+        del nuovo esercizio da aggiungere al giorno selezionato."""
+        self.info_text.value = ""
+        scelta = {"nome": ""}
+        error_txt = ft.Text("", color=theme.DANGER, size=12)
+        tutti_bottoni: list = []
+
+        def _seleziona(nome, bottone):
+            if scelta["nome"] == nome:
+                scelta["nome"] = ""
+            else:
+                scelta["nome"] = nome
+            for b in tutti_bottoni:
+                b.style = ft.ButtonStyle(bgcolor=ft.Colors.TRANSPARENT, color=theme.TEXT)
+            if scelta["nome"]:
+                bottone.style = ft.ButtonStyle(bgcolor=theme.PRIMARY, color=ft.Colors.WHITE)
+            bottone.update()
+
+        def _pillola(nome):
+            bottone = ft.OutlinedButton(
+                nome,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.TRANSPARENT,
+                    color=theme.TEXT,
+                    padding=ft.padding.symmetric(horizontal=14, vertical=8),
+                    shape=ft.RoundedRectangleBorder(radius=theme.RADIUS_SMALL),
+                ),
+                on_click=lambda e, n=nome, b=None: _seleziona(n, e.control),
+            )
+            tutti_bottoni.append(bottone)
+            return bottone
+
+        gruppi_column = ft.Column(spacing=12, scroll=ft.ScrollMode.AUTO)
+        for gruppo, esercizi in CATALOGO_ESERCIZI.items():
+            gruppi_column.controls.append(
+                ft.Text(gruppo.upper(), size=12, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)
+            )
+            gruppi_column.controls.append(
+                ft.Row(
+                    [_pillola(nome) for nome in esercizi],
+                    wrap=True,
+                    spacing=6,
+                    run_spacing=6,
+                )
+            )
+
+        campo_personalizzato = ft.TextField(
+            label="Oppure scrivi il tuo esercizio",
+            dense=True,
+            text_size=13,
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+        )
+
+        def _aggiungi(e):
+            nome = (campo_personalizzato.value or "").strip() or scelta["nome"]
+            if not nome:
+                error_txt.value = "Seleziona un esercizio dalla lista oppure scrivine uno."
+                self.page.update()
+                return
+            self.giorni[g_idx]["esercizi"].append({
+                "nome": nome,
+                "serie": 3,
+                "ripetizioni": "8-12",
+                "peso_riferimento": 0,
+                "url_foto": "",
+            })
+            self.page.close(dlg)
+            self._refresh_giorni_column()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.BG_CARD,
+            title=ft.Text("Aggiungi esercizio", color=theme.TEXT),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Scegli dalla lista per gruppo:", size=12,
+                                color=theme.TEXT_MUTED),
+                        gruppi_column,
+                        campo_personalizzato,
+                        error_txt,
+                    ],
+                    spacing=10,
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                width=360,
+                height=420,
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda ev: self.page.close(dlg)),
+                ft.TextButton("Aggiungi", on_click=_aggiungi,
+                              style=ft.ButtonStyle(color=theme.PRIMARY)),
+            ],
+        )
+        self.page.open(dlg)
 
     def _remove_esercizio(self, g_idx, e_idx):
         del self.giorni[g_idx]["esercizi"][e_idx]

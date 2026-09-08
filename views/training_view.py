@@ -161,7 +161,7 @@ class TrainingView:
     def build(self) -> ft.Control:
         header = ft.Row(
             [
-                ft.IconButton(icon=ft.Icons.ARROW_BACK, on_click=self._on_back),
+                theme.back_button(self._on_back),
                 ft.Column(
                     [
                         ft.Text(

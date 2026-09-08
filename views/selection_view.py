@@ -16,11 +16,7 @@ def build_selection_view(app) -> ft.Control:
 
     header = ft.Row(
         [
-            ft.IconButton(
-                icon=ft.Icons.ARROW_BACK,
-                icon_color=theme.TEXT,
-                on_click=lambda e: app.show_home(),
-            ),
+            theme.back_button(lambda e: app.show_home()),
             ft.Text("Seleziona Giorno", size=theme.TITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
         ],
         alignment=ft.MainAxisAlignment.START,

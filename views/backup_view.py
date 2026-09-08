@@ -131,6 +131,14 @@ def build_backup_view(app) -> ft.Control:
             app.page.close(dlg)
             app.data["scheda"] = importato["scheda"]
             app.data["storico"] = importato["storico"]
+            if importato.get("profilo"):
+                app.data["profilo"] = importato["profilo"]
+            if importato.get("peso_corporeo"):
+                app.data["peso_corporeo"] = importato["peso_corporeo"]
+            if importato.get("infortuni"):
+                app.data["infortuni"] = importato["infortuni"]
+            if importato.get("primary_color"):
+                app.data["primary_color"] = importato["primary_color"]
             app.save()
             _mostra_stato("Dati importati (sostituiti) con successo. Torna alla Home per vederli.", theme.SUCCESS)
 
@@ -142,15 +150,27 @@ def build_backup_view(app) -> ft.Control:
 
         n_giorni = len(importato["scheda"].get("giorni", []))
         n_sessioni = len(importato["storico"])
+        dettagli_extra = []
+        if importato.get("profilo") and importato["profilo"].get("nome"):
+            dettagli_extra.append("profilo")
+        if importato.get("peso_corporeo"):
+            dettagli_extra.append(f'{len(importato["peso_corporeo"])} registrazioni peso')
+        if importato.get("infortuni"):
+            dettagli_extra.append(f'{len(importato["infortuni"])} infortuni')
+        if importato.get("primary_color"):
+            dettagli_extra.append("colore tema")
+        extra_str = f" · " + ", ".join(dettagli_extra) if dettagli_extra else ""
+        n_foto = sum(1 for s in importato["storico"] if s.get("foto"))
 
         dlg = ft.AlertDialog(
             modal=True,
             bgcolor=theme.BG_CARD,
             title=ft.Text("Importare i dati?", color=theme.TEXT),
             content=ft.Text(
-                f"Il backup contiene {n_giorni} giorni di scheda e {n_sessioni} sessioni "
-                "nello storico.\n\nVuoi SOSTITUIRE i dati attuali oppure UNIRLI (lo "
-                "storico viene combinato, la scheda viene sostituita)?",
+                f"Il backup contiene {n_giorni} giorni di scheda, {n_sessioni} sessioni "
+                f"nello storico{n_foto and f' (di cui {n_foto} con foto)' or ''} "
+                f"e anche: {extra_str.strip(' · ')}.\n\nVuoi SOSTITUIRE i dati attuali "
+                "oppure UNIRLI (lo storico viene combinato, la scheda viene sostituita)?",
                 color=theme.TEXT_MUTED,
                 size=13,
             ),
@@ -200,7 +220,7 @@ def build_backup_view(app) -> ft.Control:
 
     header = ft.Row(
         [
-            ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color=theme.TEXT, on_click=lambda e: app.show_home()),
+            theme.back_button(lambda e: app.show_home()),
             ft.Row(
                 [
                     ft.Icon(ft.Icons.BACKUP, color=theme.PRIMARY, size=24),

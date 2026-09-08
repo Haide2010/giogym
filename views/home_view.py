@@ -14,9 +14,21 @@ Nuovo layout "plancia di comando" in stile mobile app:
 
 from datetime import datetime, date, timedelta
 import asyncio
+import random
 import flet as ft
 import theme
 import fitness_calc
+
+MOTTI_GYM = [
+    "NO EXCUSES. SOLO RISULTATI",
+    "PIU' FORTE DI IERI",
+    "UN REP IN PIU', SEMPRE",
+    "CONSISTENZA = PROGRESSO",
+    "L'ALLENAMENTO E' UNA PROMESSA A TE STESSO",
+    "SUDA ORA, SORRIDI DOPO",
+    "UNA SERIE ALLA VOLTA",
+    "SBATTI, MA NON MOLLARE",
+]
 
 
 def _history_card(app, sessione: dict) -> ft.Control:
@@ -216,48 +228,58 @@ def _open_month(app, anno: int, m: int, allenati_map: dict):
 
 
 def _month_grid(app, anno: int, m: int, allenati_map: dict, cell: int = 26) -> ft.Control:
-    """Griglia giorni di un mese: giorni passati/attuali colorati, cliccabili se allenati."""
+    """Griglia giorni di un mese: UNA RIGA per settimana (Lun-Dom).
+
+    Le celle vengono incapsulate in righe fisse da 7 elementi, così i giorni
+    restano sempre perfettamente allineati alle intestazioni della settimana
+    (una singola Row con wrap=True, infatti, spezzava le colonne a seconda
+    della larghezza dello schermo e sballava il calendario)."""
     import calendar as _cal
     oggi = date.today()
     giorni_settimana = ["L", "M", "M", "G", "V", "S", "D"]
-    cells = []
-    for g in giorni_settimana:
-        cells.append(ft.Container(
-            width=cell,
+    spacing = int(cell * 0.11)
+
+    def _header_row():
+        return ft.Row(
+            [ft.Container(
+                width=cell,
+                alignment=ft.alignment.center,
+                content=ft.Text(g, size=int(cell * 0.36), color=theme.TEXT_MUTED,
+                                text_align=ft.TextAlign.CENTER),
+            ) for g in giorni_settimana],
+            spacing=spacing,
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+    def _cella(day) -> ft.Control:
+        if day == 0:
+            return ft.Container(width=cell, height=int(cell * 0.85))
+        d = date(anno, m, day)
+        if d > oggi:
+            return ft.Container(width=cell, height=int(cell * 0.85))
+        sess = allenati_map.get(d)
+        allenato = sess is not None
+        is_oggi = d == oggi
+        return ft.Container(
+            content=ft.Text(str(day), size=int(cell * 0.38),
+                            color="white" if (allenato or is_oggi) else theme.TEXT_MUTED,
+                            text_align=ft.TextAlign.CENTER,
+                            weight=ft.FontWeight.BOLD if allenato else ft.FontWeight.NORMAL),
             alignment=ft.alignment.center,
-            content=ft.Text(g, size=int(cell * 0.36), color=theme.TEXT_MUTED,
-                            text_align=ft.TextAlign.CENTER),
-        ))
+            width=cell, height=int(cell * 0.85),
+            bgcolor=theme.PRIMARY if allenato else
+                    (theme.PRIMARY_DARK if is_oggi else theme.BG_CARD_LIGHT),
+            border_radius=max(4, int(cell * 0.22)),
+            border=ft.border.all(1.5, theme.PRIMARY) if is_oggi and not allenato else None,
+            on_click=(lambda e, s=sess: app.show_history_detail(s)) if allenato else None,
+        )
+
+    righe = [_header_row()]
     for week in _cal.monthcalendar(anno, m):
-        for day in week:
-            if day == 0:
-                cells.append(ft.Container(width=cell, height=int(cell * 0.85)))
-                continue
-            d = date(anno, m, day)
-            sess = allenati_map.get(d)
-            allenato = sess is not None
-            futuro = d > oggi
-            is_oggi = d == oggi
-            if futuro:
-                cells.append(ft.Container(width=cell, height=int(cell * 0.85),
-                                          bgcolor=ft.Colors.with_opacity(0.0, theme.BG_CARD)))
-            else:
-                cells.append(
-                    ft.Container(
-                        content=ft.Text(str(day), size=int(cell * 0.38),
-                                        color="white" if (allenato or is_oggi) else theme.TEXT_MUTED,
-                                        text_align=ft.TextAlign.CENTER,
-                                        weight=ft.FontWeight.BOLD if allenato else ft.FontWeight.NORMAL),
-                        alignment=ft.alignment.center,
-                        width=cell, height=int(cell * 0.85),
-                        bgcolor=theme.PRIMARY if allenato else
-                                (theme.PRIMARY_DARK if is_oggi else theme.BG_CARD_LIGHT),
-                        border_radius=max(4, int(cell * 0.22)),
-                        border=ft.border.all(1.5, theme.PRIMARY) if is_oggi and not allenato else None,
-                        on_click=(lambda e, s=sess: app.show_history_detail(s)) if allenato else None,
-                    )
-                )
-    return ft.Row(cells, spacing=int(cell * 0.11), wrap=True)
+        righe.append(ft.Row([_cella(day) for day in week],
+                            spacing=spacing,
+                            alignment=ft.MainAxisAlignment.CENTER))
+    return ft.Column(righe, spacing=spacing)
 
 
 MESI_ABBR = ["Gen", "Feb", "Mar", "Apr", "Mag", "Giu",
@@ -363,6 +385,7 @@ def build_home_view(app) -> ft.Control:
 
     storico_list = app.data.get("storico", [])
     profilo = app.data.get("profilo", {})
+    nome_utente = (profilo.get("nome") or "").strip()
     target_settimanale = int(profilo.get("frequenza_settimanale", 0) or 0)
     fatta_settimana = fitness_calc.frequenza_settimana_corrente(storico_list)
     streak = fitness_calc.streak_settimane_consecutive(storico_list, target_settimanale)
@@ -399,7 +422,10 @@ def build_home_view(app) -> ft.Control:
                     ft.Column(
                         [
                             ft.Text("GioGym", size=28, weight=ft.FontWeight.BOLD, color=theme.TEXT),
-                            ft.Text("La tua plancia di comando", size=12, color=theme.TEXT_MUTED),
+                            ft.Text(
+                                (f"Ciao {nome_utente}, la tua plancia di comando" if nome_utente
+                                 else "La tua plancia di comando"),
+                                size=12, color=theme.TEXT_MUTED),
                         ],
                         spacing=0,
                     ),
@@ -516,6 +542,7 @@ def build_home_view(app) -> ft.Control:
             bgcolor=theme.PRIMARY if allenato else theme.BG_CARD_LIGHT,
             border_radius=18,
             border=ft.border.all(2, theme.PRIMARY) if is_oggi else None,
+            shadow=ft.BoxShadow(blur_radius=14, color="#FF6B0088") if allenato else None,
         )
         giorni_row.append(
             ft.Column(
@@ -578,8 +605,45 @@ def build_home_view(app) -> ft.Control:
 
     # ---------- 5. Storico ----------
     storico = list(reversed(storico_list))
+
+    def _mostra_tutti_allenamenti(e):
+        """Apre la lista completa (tutte le sessioni) in un dialogo scorrevole."""
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.BG_CARD,
+            title=ft.Text("Tutti gli allenamenti", size=16,
+                          weight=ft.FontWeight.BOLD, color=theme.TEXT),
+            content=ft.Container(
+                width=380,
+                padding=4,
+                content=ft.ListView(
+                    [_history_card(app, s) for s in storico],
+                    spacing=4,
+                    expand=True,
+                ),
+            ),
+            actions=[ft.TextButton("Chiudi", on_click=lambda e: app.page.close(dlg))],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        app.page.open(dlg)
+
     if storico:
         history_controls = [_history_card(app, s) for s in storico[:5]]
+        storico_header = ft.Row(
+            [
+                ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE,
+                        weight=ft.FontWeight.BOLD, color=theme.TEXT),
+                ft.TextButton(
+                    "Vedi tutti",
+                    on_click=_mostra_tutti_allenamenti,
+                    icon=ft.Icons.UNFOLD_MORE,
+                    icon_color=theme.PRIMARY,
+                    style=ft.ButtonStyle(color=theme.PRIMARY),
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
     else:
         history_controls = [
             ft.Container(
@@ -595,6 +659,8 @@ def build_home_view(app) -> ft.Control:
                 padding=12,
             )
         ]
+        storico_header = ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE,
+                                 weight=ft.FontWeight.BOLD, color=theme.TEXT)
 
     # ---------- 6. Accesso rapido a "pillole" ----------
     # Colori accent distintivi per sezione, coerenti alla palette Dark Obsidian.
@@ -611,6 +677,8 @@ def build_home_view(app) -> ft.Control:
         (ft.Icons.VIEW_LIST, "Scheda", lambda e: app.show_schema_editor()),
         (ft.Icons.EMOJI_EVENTS, "Record", lambda e: app.show_pr()),
         (ft.Icons.SHOW_CHART, "Grafici", lambda e: app.show_progress()),
+        (ft.Icons.MONITOR_WEIGHT, "Peso", lambda e: app.show_body()),
+        (ft.Icons.RESTAURANT, "Dieta", lambda e: app.show_diet()),
         (ft.Icons.PERSON, "Profilo", lambda e: app.show_profile()),
         (ft.Icons.HEALING, "Infortuni", lambda e: app.show_injuries()),
         (ft.Icons.BACKUP, "Backup", lambda e: app.show_backup()),
@@ -651,13 +719,28 @@ def build_home_view(app) -> ft.Control:
         [
             header,
             ft.Divider(color=theme.BORDER, height=16),
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.BOLT, color=theme.PRIMARY, size=18),
+                    ft.Text(
+                        random.choice(MOTTI_GYM),
+                        size=13,
+                        weight=ft.FontWeight.W_900,
+                        color=theme.PRIMARY,
+                        style=ft.TextStyle(letter_spacing=1.5),
+                    ),
+                    ft.Icon(ft.Icons.BOLT, color=theme.PRIMARY, size=18),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                spacing=8,
+            ),
             hero_card,
             ft.Divider(color=theme.BORDER, height=10),
             week_card,
             ft.Divider(color=theme.BORDER, height=10),
             stat_card,
             ft.Divider(color=theme.BORDER, height=16),
-            ft.Text("Storico allenamenti", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
+            storico_header,
             *history_controls,
             ft.Divider(color=theme.BORDER, height=16),
             annual_card,
@@ -738,15 +821,26 @@ def build_home_view(app) -> ft.Control:
         shadow=ft.BoxShadow(blur_radius=24, color="#00000066", offset=ft.Offset(0, -4)),
     )
 
-    # Programma l'ingresso animato (fade + salita) a scaglioni
-    if hasattr(app.page, "run_task"):
+    # Programma l'ingresso animato (fade + salita) a scaglioni.
+    # Se run_task non è disponibile (es. durante i test) o fallisce, i
+    # contenuti vengono mostrati subito senza animazione per non restare vuoti.
+    cards_in = [hero_card, week_card, stat_card, fab]
+    delays_in = [0.05, 0.18, 0.30, 0.42]
+
+    def _ripristina_visibili():
+        for c in cards_in:
+            c.opacity = 1
+            c.offset = ft.Offset(0, 0)
+        app.page.update()
+
+    if getattr(app.page, "run_task", None) is None:
+        _ripristina_visibili()
+    else:
         try:
-            app.page.run_task(_fade_in, hero_card, 0.05)
-            app.page.run_task(_fade_in, week_card, 0.18)
-            app.page.run_task(_fade_in, stat_card, 0.30)
-            app.page.run_task(_fade_in, fab, 0.42)
+            for c, d in zip(cards_in, delays_in):
+                app.page.run_task(_fade_in, c, d)
         except Exception:
-            pass
+            _ripristina_visibili()
 
     return ft.Column(
         [

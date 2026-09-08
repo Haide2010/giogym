@@ -19,8 +19,23 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
     def conferma_eliminazione(e):
         """Apre un dialogo di conferma prima di rimuovere la sessione."""
         def esegui_eliminazione(ev):
-            if sessione in app.data.get("storico", []):
-                app.data["storico"].remove(sessione)
+            # Rimuove per identità OPPURE per data+giorno (le sessioni salvate
+            # spesso sono copie nuove della dict mostrata: il semplice
+            # `sessione in storico` fallirebbe e l'eliminazione non avverrebbe).
+            storico = app.data.get("storico", [])
+            corrispondenze = [
+                s for s in storico
+                if s is sessione or (
+                    s.get("data") == sessione.get("data")
+                    and s.get("giorno_nome") == sessione.get("giorno_nome")
+                )
+            ]
+            if corrispondenze:
+                for s in corrispondenze:
+                    try:
+                        storico.remove(s)
+                    except ValueError:
+                        pass
                 app.save()
             app.page.close(dlg_conferma)
             app.show_home()
@@ -67,11 +82,7 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
         [
             ft.Row(
                 [
-                    ft.IconButton(
-                        icon=ft.Icons.ARROW_BACK,
-                        icon_color=theme.TEXT,
-                        on_click=lambda e: app.show_home(),
-                    ),
+                    theme.back_button(lambda e: app.show_home()),
                     ft.Text(
                         f"{giorno_nome}",
                         size=theme.TITLE_SIZE,

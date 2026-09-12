@@ -19,6 +19,26 @@ REST_STEP_SECONDS = 30
 REST_DEFAULT_SECONDS = 90
 REST_WARNING_THRESHOLD = 10
 
+TIPO_RISCALDAMENTO = [
+    "Cardio leggero",
+    "Cyclette",
+    "Rowing machine",
+    "Corda",
+    "Mobilità articolare",
+    "Stretching dinamico",
+    "Tecnica a vuoto",
+    "Attivazione muscolare",
+]
+
+TIPO_DEFATICAMENTO = [
+    "Stretching statico",
+    "Cardio leggero",
+    "Deambulazione",
+    "Respirazione",
+    "Foam roller / massaggio",
+    "Riposo",
+]
+
 
 def _parse_target_reps(ripetizioni_str: str) -> str:
     match = re.search(r"\d+", str(ripetizioni_str))
@@ -155,6 +175,25 @@ class TrainingView:
             bgcolor=theme.SUCCESS,
         )
 
+        # --- Fasi opzionali: Riscaldamento (prima) e Defaticamento (dopo) ---
+        # Ogni voce ha {tipo, minuti, note}. Vengono salvate nella sessione.
+        self.risc_data = [dict(x) for x in ((edit_session or {}).get("riscaldamento") or [])]
+        self.defat_data = [dict(x) for x in ((edit_session or {}).get("defaticamento") or [])]
+        self.risc_items_col = ft.Column(spacing=6)
+        self.defat_items_col = ft.Column(spacing=6)
+        self.risc_body = None
+        self.defat_body = None
+        self.risc_switch = ft.Switch(
+            label="Riscaldamento",
+            value=bool(self.risc_data),
+            on_change=lambda e: self._toggle_fase("risc"),
+        )
+        self.defat_switch = ft.Switch(
+            label="Defaticamento",
+            value=bool(self.defat_data),
+            on_change=lambda e: self._toggle_fase("defat"),
+        )
+
     # ------------------------------------------------------------------
     # Costruzione UI principale
     # ------------------------------------------------------------------
@@ -187,10 +226,19 @@ class TrainingView:
             for idx, esercizio in enumerate(self.giorno["esercizi"])
         ]
 
+        self._rebuild_fase("risc")
+        self._rebuild_fase("defat")
+
         esercizi_list = ft.ListView(
-            controls=self._build_injury_controls() + [self.general_notes_field] + esercizi_controls, 
-            expand=True, 
-            spacing=14
+            controls=(
+                [self._build_fase_card("risc")]
+                + self._build_injury_controls()
+                + [self.general_notes_field]
+                + esercizi_controls
+                + [self._build_fase_card("defat")]
+            ),
+            expand=True,
+            spacing=14,
         )
 
         finish_btn = ft.ElevatedButton(
@@ -237,6 +285,163 @@ class TrainingView:
                         ultima = serie_svolte[-1]
                         return f"Ultima volta: {ultima.get('peso', 0)} kg × {ultima.get('reps', '-')} reps"
         return "Nessuno storico precedente"
+
+    # ------------------------------------------------------------------
+    # Fasi opzionali: Riscaldamento (prima degli esercizi) e Defaticamento
+    # ------------------------------------------------------------------
+    def _fase_dati(self, which) -> list:
+        return self.risc_data if which == "risc" else self.defat_data
+
+    def _fase_col(self, which) -> ft.Column:
+        return self.risc_items_col if which == "risc" else self.defat_items_col
+
+    def _fase_tipi(self, which) -> list:
+        return TIPO_RISCALDAMENTO if which == "risc" else TIPO_DEFATICAMENTO
+
+    def _fase_switch(self, which) -> ft.Switch:
+        return self.risc_switch if which == "risc" else self.defat_switch
+
+    def _fase_body(self, which):
+        return self.risc_body if which == "risc" else self.defat_body
+
+    def _toggle_fase(self, which):
+        switch = self._fase_switch(which)
+        body = self._fase_body(which)
+        if body is not None:
+            body.visible = switch.value
+        if switch.value and not self._fase_dati(which):
+            self._add_fase_item(which)
+        else:
+            self.page.update()
+
+    def _add_fase_item(self, which):
+        self._fase_dati(which).append(
+            {"tipo": self._fase_tipi(which)[0], "minuti": None, "note": ""})
+        self._rebuild_fase(which)
+        self.page.update()
+
+    def _remove_fase_item(self, which, idx):
+        dati = self._fase_dati(which)
+        if 0 <= idx < len(dati):
+            dati.pop(idx)
+            self._rebuild_fase(which)
+            self.page.update()
+
+    def _rebuild_fase(self, which):
+        col = self._fase_col(which)
+        dati = self._fase_dati(which)
+        col.controls.clear()
+        if not dati:
+            col.controls.append(
+                ft.Text("Nessuna voce: aggiungine una.", size=12, color=theme.TEXT_MUTED))
+            return
+        for idx, data in enumerate(dati):
+            col.controls.append(self._build_fase_row(which, idx, data))
+
+    @staticmethod
+    def _set_fase_minuti(data: dict, value: str):
+        v = (value or "").strip().replace(",", ".")
+        if not v:
+            data["minuti"] = None
+            return
+        try:
+            data["minuti"] = max(1, int(float(v)))
+        except ValueError:
+            data["minuti"] = None
+
+    def _build_fase_row(self, which: str, idx: int, data: dict) -> ft.Control:
+        tipi = self._fase_tipi(which)
+        tipo_value = data.get("tipo") or tipi[0]
+        if tipo_value not in tipi:
+            tipo_value = tipi[0]
+        tipo = ft.Dropdown(
+            label="Tipo",
+            options=[ft.dropdown.Option(t, t) for t in tipi],
+            value=tipo_value,
+            dense=True,
+            expand=True,
+            on_change=lambda e, d=data: d.__setitem__("tipo", e.control.value),
+        )
+        minuti = ft.TextField(
+            label="Minuti",
+            dense=True,
+            width=88,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            value=str(data.get("minuti") or ""),
+            on_change=lambda e, d=data: self._set_fase_minuti(d, e.control.value),
+        )
+        nota = ft.TextField(
+            label="Descrizione (opzionale)",
+            dense=True,
+            expand=True,
+            text_size=12,
+            value=data.get("note") or "",
+            on_change=lambda e, d=data: d.__setitem__("note", e.control.value),
+        )
+        elimina = ft.IconButton(
+            ft.Icons.DELETE_OUTLINE,
+            icon_color=theme.DANGER,
+            icon_size=18,
+            tooltip="Rimuovi voce",
+            on_click=lambda e, w=which, i=idx: self._remove_fase_item(w, i),
+        )
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row([tipo, minuti], spacing=6),
+                    ft.Row([nota, elimina], spacing=6),
+                ],
+                spacing=6,
+            ),
+            padding=10,
+            bgcolor=theme.BG_CARD_LIGHT,
+            border_radius=theme.RADIUS_SMALL,
+        )
+
+    def _build_fase_card(self, which: str) -> ft.Control:
+        switch = self._fase_switch(which)
+        body = ft.Container(
+            content=ft.Column(
+                [
+                    self._fase_col(which),
+                    ft.OutlinedButton(
+                        "Aggiungi voce",
+                        icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                        on_click=lambda e, w=which: self._add_fase_item(w),
+                    ),
+                ],
+                spacing=8,
+            ),
+            visible=switch.value,
+        )
+        if which == "risc":
+            self.risc_body = body
+            icona = ft.Icons.LOCAL_FIRE_DEPARTMENT
+            colore = theme.WARNING
+            sottotitolo = "Prima degli esercizi: cardio leggero, mobilità, stretching dinamico... (opzionale)"
+        else:
+            self.defat_body = body
+            icona = ft.Icons.AC_UNIT
+            colore = theme.INFO
+            sottotitolo = "A fine allenamento: stretching statico, defaticamento... (opzionale)"
+        return theme.card_container(
+            ft.Column(
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(icona, color=colore, size=20),
+                            switch,
+                            ft.Container(expand=True),
+                            ft.Text("Opzionale", size=11, color=theme.TEXT_MUTED, italic=True),
+                        ],
+                        spacing=8,
+                    ),
+                    ft.Text(sottotitolo, size=11, color=theme.TEXT_MUTED),
+                    body,
+                ],
+                spacing=6,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Registro "Infortuni o Fastidi" collegato al muscolo
@@ -637,6 +842,9 @@ class TrainingView:
         h, m = divmod(m, 60)
         durata_str = f"{h}h {m}m" if h > 0 else f"{m}m {s}s"
 
+        risc = self._fase_da_salvare(self.risc_switch, self.risc_data)
+        defa = self._fase_da_salvare(self.defat_switch, self.defat_data)
+
         sessione = {
             "data": dm.today_str(),
             "giorno_nome": self.giorno.get("nome", ""),
@@ -644,6 +852,10 @@ class TrainingView:
             "note_generali": self.general_notes_field.value if self.general_notes_field.value else "",
             "esercizi": esercizi_storico,
         }
+        if risc is not None:
+            sessione["riscaldamento"] = risc
+        if defa is not None:
+            sessione["defaticamento"] = defa
 
         # Rileva eventuali nuovi Record Personali confrontando lo storico
         # PRIMA e DOPO l'inserimento di questa sessione, per poterli
@@ -661,6 +873,21 @@ class TrainingView:
             nuovi_pr,
             modify_index=self.edit_index,
         )
+
+    @staticmethod
+    def _fase_da_salvare(switch, items):
+        """Ritorna la lista di voci {tipo,minuti,note} da salvare, oppure
+        None se la fase è disattivata o completamente vuota."""
+        if not switch.value:
+            return None
+        lista = []
+        for it in items:
+            tipo = (it.get("tipo") or "").strip()
+            minuti = it.get("minuti")
+            note = (it.get("note") or "").strip()
+            if tipo or minuti or note:
+                lista.append({"tipo": tipo, "minuti": minuti, "note": note})
+        return lista or None
 
 
 def build_training_view(app, giorno_selezionato: dict, edit_session: dict = None, edit_index: int = None) -> ft.Control:

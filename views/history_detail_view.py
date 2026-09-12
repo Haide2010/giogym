@@ -241,6 +241,60 @@ def build_history_detail_view(app, sessione: dict) -> ft.Control:
             )
         )
 
+    def _fase_card(titolo, icona, colore, items):
+        if not items:
+            return None
+        righe = []
+        for it in items:
+            tipo = (it.get("tipo") or "").strip()
+            minuti = it.get("minuti")
+            note = (it.get("note") or "").strip()
+            testo = tipo if tipo else "Generico"
+            if minuti:
+                testo += f" · {minuti} min"
+            righe.append(
+                ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=theme.SUCCESS, size=16),
+                                ft.Text(testo, size=13, color=theme.TEXT, weight=ft.FontWeight.BOLD),
+                            ],
+                            spacing=6,
+                            wrap=False,
+                        ),
+                        ft.Text(note, size=11, color=theme.TEXT_MUTED, visible=bool(note)),
+                    ],
+                    spacing=2,
+                    expand=True,
+                )
+            )
+        return theme.card_container(
+            ft.Column(
+                [
+                    ft.Row(
+                        [ft.Icon(icona, color=colore, size=18),
+                         ft.Text(titolo, size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT)],
+                        spacing=6,
+                    ),
+                    ft.Divider(color=theme.BORDER, height=8),
+                    ft.Column(righe, spacing=8),
+                ],
+                spacing=6,
+            ),
+            margin=ft.margin.only(bottom=10),
+        )
+
+    risc_card = _fase_card("Riscaldamento", ft.Icons.LOCAL_FIRE_DEPARTMENT, theme.WARNING,
+                           sessione.get("riscaldamento"))
+    if risc_card:
+        extra_controls.append(risc_card)
+
+    defa_card = _fase_card("Defaticamento", ft.Icons.AC_UNIT, theme.INFO,
+                           sessione.get("defaticamento"))
+    if defa_card:
+        extra_controls.append(defa_card)
+
     content_list = ft.ListView(
         controls=extra_controls + esercizio_controls,
         expand=True,

@@ -13,6 +13,8 @@ piattaforma (desktop, mobile, web):
    alternativa se il file picker non è utilizzabile sul dispositivo.
 """
 
+import os
+
 import flet as ft
 import theme
 import data_manager as dm
@@ -26,16 +28,35 @@ def build_backup_view(app) -> ft.Control:
     # ------------------------------------------------------------------
     # Sezione ESPORTAZIONE
     # ------------------------------------------------------------------
+    include_fotos_cb = ft.Checkbox(
+        label="Includi le foto degli allenamenti (il file diventa molto grande)",
+        value=False,
+        on_change=lambda e: _ricarica_anteprima(),
+    )
+
     json_preview_field = ft.TextField(
-        label="Contenuto JSON del backup",
-        value=dm.export_data_to_json(app.data),
+        label="Anteprima struttura del backup",
+        value="",
         multiline=True,
-        min_lines=6,
-        max_lines=10,
+        min_lines=4,
+        max_lines=7,
         read_only=True,
         border_color=theme.BORDER,
         text_size=11,
     )
+
+    def _json_backup() -> str:
+        return dm.export_data_to_json(app.data, include_fotos=bool(include_fotos_cb.value))
+
+    def _ricarica_anteprima():
+        contenuto = _json_backup()
+        if len(contenuto) > 3500:
+            json_preview_field.value = contenuto[:3500] + "\n… (anteprima troncata al limite, il backup completo è più grande)"
+        else:
+            json_preview_field.value = contenuto
+        app.page.update()
+
+    _ricarica_anteprima()
 
     def _mostra_stato(msg: str, colore):
         status_text.value = msg
@@ -43,15 +64,26 @@ def build_backup_view(app) -> ft.Control:
         app.page.update()
 
     def _save_result(e: ft.FilePickerResultEvent):
+        if e.error:
+            _mostra_stato(
+                "Il dialogo di salvataggio non è disponibile su questo dispositivo: "
+                "usa 'Salva nella cartella' o 'Copia testo'.",
+                theme.DANGER,
+            )
+            return
         if not e.path:
+            _mostra_stato("Salvataggio annullato.", theme.TEXT_MUTED)
             return
         try:
             path = e.path if e.path.lower().endswith(".json") else e.path + ".json"
             with open(path, "w", encoding="utf-8") as f:
-                f.write(dm.export_data_to_json(app.data))
+                f.write(_json_backup())
             _mostra_stato(f"Backup salvato in: {path}", theme.SUCCESS)
         except OSError as exc:
-            _mostra_stato(f"Errore durante il salvataggio: {exc}", theme.DANGER)
+            _mostra_stato(
+                f"Errore durante il salvataggio: {exc}. Usa 'Salva nella cartella' o 'Copia testo'.",
+                theme.DANGER,
+            )
 
     save_picker = ft.FilePicker(on_result=_save_result)
 
@@ -78,8 +110,21 @@ def build_backup_view(app) -> ft.Control:
             allowed_extensions=["json"],
         )
 
+    def _salva_nella_cartella(e):
+        """Salva senza chiedere il percorso: scrive nella cartella dati
+        dell'app e mostra/copia il percorso. Funziona ovunque, anche dove
+        il dialogo nativo non è disponibile."""
+        try:
+            directory = os.path.dirname(dm.get_data_path())
+            path = dm.export_backup_file(
+                app.data, directory, include_fotos=bool(include_fotos_cb.value))
+            app.page.set_clipboard(path)
+            _mostra_stato(f"Backup salvato in:\n{path}\n(Percorso copiato negli appunti)", theme.SUCCESS)
+        except OSError as exc:
+            _mostra_stato(f"Errore durante il salvataggio: {exc}", theme.DANGER)
+
     def _copia_negli_appunti(e):
-        app.page.set_clipboard(json_preview_field.value)
+        app.page.set_clipboard(_json_backup())
         _mostra_stato("Contenuto JSON copiato negli appunti.", theme.SUCCESS)
 
     export_actions = ft.Row(
@@ -99,6 +144,13 @@ def build_backup_view(app) -> ft.Control:
                     spacing=8,
                 ),
                 on_click=_copia_negli_appunti,
+            ),
+            ft.OutlinedButton(
+                content=ft.Row(
+                    [ft.Icon(ft.Icons.FOLDER_OPEN, color=theme.TEXT), ft.Text("Salva nella cartella")],
+                    spacing=8,
+                ),
+                on_click=_salva_nella_cartella,
             ),
         ],
         spacing=10,
@@ -238,11 +290,13 @@ def build_backup_view(app) -> ft.Control:
             ft.Text("Esporta i tuoi dati", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),
             ft.Text(
                 "Salva scheda e storico in un file JSON: utile come backup di "
-                "sicurezza o per trasferire i dati su un altro dispositivo.",
+                "sicurezza o per trasferire i dati su un altro dispositivo. "
+                "Le foto NON sono incluse di default per tenere il file leggero.",
                 size=12,
                 color=theme.TEXT_MUTED,
             ),
             export_actions,
+            include_fotos_cb,
             json_preview_field,
             ft.Divider(color=theme.BORDER, height=20),
             ft.Text("Importa dati da backup", size=theme.SUBTITLE_SIZE, weight=ft.FontWeight.BOLD, color=theme.TEXT),

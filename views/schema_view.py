@@ -180,6 +180,7 @@ class SchemaEditorView:
                 collapsed_shape=ft.RoundedRectangleBorder(radius=theme.RADIUS),
                 tile_padding=ft.padding.symmetric(horizontal=8, vertical=6),
                 maintain_state=True,
+                initially_expanded=True,
             ),
             padding=6,
         )
@@ -231,6 +232,9 @@ class SchemaEditorView:
                               tooltip="Sposta esercizio giù",
                               on_click=lambda e: self._sposta_esercizio(g_idx, e_idx, 1),
                               disabled=e_idx == tot_esercizi - 1),
+                ft.IconButton(ft.Icons.CONTENT_COPY, icon_color=theme.TEXT_MUTED, icon_size=16,
+                              tooltip="Duplica esercizio",
+                              on_click=lambda e: self._duplica_esercizio(g_idx, e_idx)),
                 ft.IconButton(ft.Icons.CLOSE, icon_color=theme.DANGER, icon_size=18,
                               tooltip="Rimuovi esercizio",
                               on_click=lambda e: self._remove_esercizio(g_idx, e_idx)),
@@ -428,6 +432,13 @@ class SchemaEditorView:
 
     def _remove_esercizio(self, g_idx, e_idx):
         del self.giorni[g_idx]["esercizi"][e_idx]
+        self._refresh_giorni_column()
+
+    def _duplica_esercizio(self, g_idx, e_idx):
+        esercizio = copy.deepcopy(self.giorni[g_idx]["esercizi"][e_idx])
+        esercizio["nome"] = esercizio.get("nome", "") + " (Copia)"
+        self.giorni[g_idx]["esercizi"].insert(e_idx + 1, esercizio)
+        self.info_text.value = ""
         self._refresh_giorni_column()
 
     def _sposta_esercizio(self, g_idx, e_idx, direzione):

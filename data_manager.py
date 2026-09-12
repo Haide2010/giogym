@@ -160,17 +160,33 @@ def _storico_con_foto_b64(storico: list) -> list:
     return output
 
 
-def export_data_to_json(data: dict) -> str:
+def export_data_to_json(data: dict, include_fotos: bool = False) -> str:
     """Serializza l'intero dizionario dati in una stringa JSON leggibile,
     pronta per essere scritta su file e condivisa/trasferita. Il backup
-    include scheda, storico (con le foto), profilo, peso corporeo,
-    infortuni e colore del tema scelto."""
+    include scheda, storico, profilo, peso corporeo, infortuni e colore
+    del tema scelto.
+
+    Di default le FOTO dell'allenamento NON vengono incluse: sono dati
+    binari codificati in base64 che gonfiano il file rendendolo enorme e
+    difficile da copiare/condividere. Imposta `include_fotos=True` solo
+    per esportazioni complete."""
+    def _storico_export():
+        if include_fotos:
+            return _storico_con_foto_b64(data.get("storico", []))
+        output = []
+        for sessione in data.get("storico", []):
+            copia = dict(sessione)
+            copia.pop("foto", None)
+            copia.pop("foto_b64", None)
+            output.append(copia)
+        return output
+
     payload = {
         "app": "GioGym",
         "versione_backup": 2,
         "esportato_il": datetime.now().strftime("%d/%m/%Y %H:%M"),
         "scheda": data.get("scheda", {"giorni": []}),
-        "storico": _storico_con_foto_b64(data.get("storico", [])),
+        "storico": _storico_export(),
         "profilo": data.get("profilo", {}),
         "peso_corporeo": data.get("peso_corporeo", []),
         "infortuni": data.get("infortuni", []),
@@ -179,14 +195,14 @@ def export_data_to_json(data: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def export_backup_file(data: dict, directory: str) -> str:
+def export_backup_file(data: dict, directory: str, include_fotos: bool = False) -> str:
     """Scrive un file di backup timestampato nella cartella indicata e
     ne ritorna il percorso completo."""
     os.makedirs(directory, exist_ok=True)
     filename = f"giogym_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     path = os.path.join(directory, filename)
     with open(path, "w", encoding="utf-8") as f:
-        f.write(export_data_to_json(data))
+        f.write(export_data_to_json(data, include_fotos=include_fotos))
     return path
 
 

@@ -54,10 +54,12 @@ class TrainingView:
         self.edit_index = edit_index
 
         # --- Cronometro Globale Sessione ---
-        # Basato su time.monotonic(): il tempo trascorso viene ricalcolato
-        # dal timestamp a ogni aggiornamento, quindi resta corretto anche se
-        # l'app va in background o lo schermo si spegne per un po'.
-        self.session_start_monotonic = time.monotonic()
+        # Basato su time.time() (orologio di parete): il tempo trascorso
+        # viene ricalcolato dal timestamp a ogni aggiornamento, quindi resta
+        # corretto anche se l'app va in background o lo schermo si spegne:
+        # l'orologio di parete continua a scorrere durante la sospensione,
+        # a differenza di time.monotonic() che su Android/iOS si ferma.
+        self.session_start_wall = time.time()
         self.elapsed_seconds = 0
         self.global_timer_running = True
         self.global_timer_text = ft.Text("00:00", size=14, weight=ft.FontWeight.BOLD, color=theme.PRIMARY)
@@ -91,7 +93,14 @@ class TrainingView:
                 for i, ex in enumerate(edit_session.get("esercizi", []))
             }
         else:
-            self.giorno = app.data["scheda"]["giorni"][giorno_index]
+            # Copia il giorno della scheda: gli esercizi aggiunti durante la
+            # sessione (feature "Aggiungi esercizio") non devono alterare la
+            # scheda originale salvata.
+            giorno_sorgente = app.data["scheda"]["giorni"][giorno_index]
+            self.giorno = {
+                "nome": giorno_sorgente.get("nome", "Allenamento"),
+                "esercizi": [dict(e) for e in giorno_sorgente.get("esercizi", [])],
+            }
             self._session_notes = {}
             # Stato di sessione nuovo (da zero)
             self.session = []
@@ -221,24 +230,21 @@ class TrainingView:
             ]
         )
 
-        esercizi_controls = [
-            self._build_esercizio_card(idx, esercizio)
-            for idx, esercizio in enumerate(self.giorno["esercizi"])
-        ]
-
         self._rebuild_fase("risc")
         self._rebuild_fase("defat")
 
-        esercizi_list = ft.ListView(
-            controls=(
-                [self._build_fase_card("risc")]
-                + self._build_injury_controls()
-                + [self.general_notes_field]
-                + esercizi_controls
-                + [self._build_fase_card("defat")]
-            ),
+        self.esercizi_list = ft.ListView(
+            controls=self._build_list_controls(),
             expand=True,
             spacing=14,
+        )
+
+        add_ex_btn = ft.OutlinedButton(
+            "Aggiungi esercizio",
+            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+            icon_color=theme.PRIMARY,
+            style=ft.ButtonStyle(color=theme.PRIMARY),
+            on_click=lambda e: self._open_add_exercise_dialog(),
         )
 
         finish_btn = ft.ElevatedButton(
@@ -268,12 +274,194 @@ class TrainingView:
                     ],
                 ),
                 ft.Divider(color=theme.BORDER, height=10),
-                esercizi_list,
+                self.esercizi_list,
+                add_ex_btn,
                 finish_btn,
             ],
             expand=True,
             spacing=8,
         )
+
+    def _build_list_controls(self) -> list:
+        """Ricostruisce tutti i controlli della ListView degli esercizi."""
+        esercizi_controls = [
+            self._build_esercizio_card(idx, esercizio)
+            for idx, esercizio in enumerate(self.giorno["esercizi"])
+        ]
+        return (
+            [self._build_fase_card("risc")]
+            + self._build_injury_controls()
+            + [self.general_notes_field]
+            + esercizi_controls
+            + [self._build_fase_card("defat")]
+        )
+
+    def _open_add_exercise_dialog(self):
+        """Dialog per aggiungere a caldo un esercizio (nuovo o da uno già
+        esistente in scheda/storico) alla sessione in corso, senza toccare
+        la scheda salvata."""
+
+        def _existing_options() -> list:
+            nomi = []
+            visti = set()
+            for g in self.app.data.get("scheda", {}).get("giorni", []):
+                for ex in g.get("esercizi", []):
+                    nome = (ex.get("nome") or "").strip()
+                    key = nome.lower()
+                    if nome and key not in visti:
+                        visti.add(key)
+                        nomi.append(nome)
+            for sess in self.app.data.get("storico", []):
+                for ex in sess.get("esercizi", []):
+                    nome = (ex.get("nome") or "").strip()
+                    key = nome.lower()
+                    if nome and key not in visti:
+                        visti.add(key)
+                        nomi.append(nome)
+            return sorted(nomi, key=str.lower)
+
+        nome_field = ft.TextField(
+            label="Nome nuovo esercizio",
+            dense=True,
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+        )
+        serie_field = ft.TextField(
+            label="Serie", dense=True, width=70,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color=theme.BORDER, focused_border_color=theme.PRIMARY,
+        )
+        reps_field = ft.TextField(
+            label="Ripetizioni", dense=True, width=90,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color=theme.BORDER, focused_border_color=theme.PRIMARY,
+        )
+        peso_field = ft.TextField(
+            label="Peso rif. (kg)", dense=True, width=100,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            border_color=theme.BORDER, focused_border_color=theme.PRIMARY,
+        )
+
+        options = _existing_options()
+        es_dd = ft.Dropdown(
+            label="Oppure scegli uno esistente",
+            options=[ft.dropdown.Option(n, n) for n in options] if options else [],
+            dense=True,
+            border_color=theme.BORDER,
+            focused_border_color=theme.PRIMARY,
+            on_change=lambda e: self._fill_exercise_from_dropdown(
+                e.control.value, nome_field, serie_field, reps_field, peso_field),
+        )
+
+        def _parse_int(tf, fallback):
+            v = (tf.value or "").strip().replace(",", ".")
+            if not v:
+                return fallback
+            try:
+                return max(1, int(float(v)))
+            except ValueError:
+                return fallback
+
+        def _parse_float(tf):
+            v = (tf.value or "").strip().replace(",", ".")
+            if not v:
+                return 0
+            try:
+                return float(v)
+            except ValueError:
+                return 0
+
+        def conferma(ev):
+            self.page.close(dlg)
+            nome = (nome_field.value or "").strip()
+            if not nome:
+                self.page.open(ft.SnackBar(content=ft.Text("Inserisci un nome per l'esercizio."), bgcolor=theme.WARNING))
+                self.page.update()
+                return
+            serie = _parse_int(serie_field, 3)
+            reps = (reps_field.value or "").strip()
+            peso = _parse_float(peso_field)
+
+            self.giorno["esercizi"].append({
+                "nome": nome,
+                "serie": serie,
+                "peso_riferimento": peso,
+                "ripetizioni": reps,
+            })
+            self.session.append([
+                {"peso": peso, "reps": _parse_target_reps(reps), "completata": False}
+                for _ in range(serie)
+            ])
+            self._rebuild_exercise_list()
+            self.page.open(ft.SnackBar(content=ft.Text("Esercizio aggiunto alla sessione!"), bgcolor=theme.SUCCESS))
+            self.page.update()
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            bgcolor=theme.BG_CARD,
+            title=ft.Text("Aggiungi esercizio", color=theme.TEXT, weight=ft.FontWeight.BOLD),
+            content=ft.Column(
+                [
+                    nome_field,
+                    es_dd,
+                    ft.Row([serie_field, reps_field, peso_field], spacing=8),
+                    ft.Text("Scegli un nome oppure seleziona uno già esistente; serie, ripetizioni e peso restano modificabili durante l'allenamento.",
+                            size=12, color=theme.TEXT_MUTED, italic=True),
+                ],
+                tight=True,
+                spacing=10,
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self.page.close(dlg)),
+                ft.FilledButton("Aggiungi", on_click=conferma),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.open(dlg)
+        self.page.update()
+
+    def _fill_exercise_from_dropdown(self, nome, nome_field, serie_field, reps_field, peso_field):
+        """Precompila i campi con l'ultima prestazione nota dell'esercizio
+        scelto (default dalla scheda, altrimenti dall'ultimo storico)."""
+        nome = (nome or "").strip()
+        if not nome:
+            return
+        ex_rif = None
+        for g in self.app.data.get("scheda", {}).get("giorni", []):
+            for ex in g.get("esercizi", []):
+                if (ex.get("nome") or "").strip().lower() == nome.lower():
+                    ex_rif = ex
+                    break
+            if ex_rif:
+                break
+        if ex_rif is None:
+            for sess in reversed(self.app.data.get("storico", [])):
+                for ex in sess.get("esercizi", []):
+                    if (ex.get("nome") or "").strip().lower() == nome.lower() and ex.get("serie_svolte"):
+                        ultima = ex["serie_svolte"][-1]
+                        ex_rif = {
+                            "serie": len(ex["serie_svolte"]),
+                            "ripetizioni": ultima.get("reps", ""),
+                            "peso_riferimento": ultima.get("peso", 0),
+                        }
+                        break
+                if ex_rif:
+                    break
+
+        nome_field.value = nome
+        serie_field.value = str(ex_rif.get("serie", 3) or 3) if ex_rif else ""
+        reps_field.value = str(ex_rif.get("ripetizioni", "") or "") if ex_rif else ""
+        peso_field.value = str(ex_rif.get("peso_riferimento", 0) or 0) if ex_rif else ""
+        if self.page:
+            self.page.update()
+
+    def _rebuild_exercise_list(self):
+        """Rigenera i controlli della lista esercizi dopo l'aggiunta."""
+        self._check_buttons.clear()
+        self._note_fields.clear()
+        self._rm_labels.clear()
+        self.esercizi_list.controls = self._build_list_controls()
+        self.page.update()
 
     def _get_last_performance(self, ex_name: str) -> str:
         """Cerca nello storico l'ultima prestazione registrata per questo esercizio."""
@@ -626,12 +814,18 @@ class TrainingView:
         except (TypeError, ValueError):
             label.value = "1RM ≈ --"
 
+    def _elapsed_now(self) -> int:
+        """Secondi trascorsi dall'inizio della sessione, calcolati con
+        l'orologio di parete (avanza anche a schermo spento/in background)."""
+        return max(0, int(time.time() - self.session_start_wall))
+
     async def _global_timer_loop(self):
         """Aggiorna ogni secondo il cronometro globale della sessione."""
         while self.global_timer_running:
             # Ricalcola sempre dal timestamp di inizio: così il totale è
-            # corretto anche dopo un periodo con l'app in background.
-            self.elapsed_seconds = int(time.monotonic() - self.session_start_monotonic)
+            # corretto anche dopo un periodo con l'app in background o lo
+            # schermo spento (l'orologio di parete avanza comunque).
+            self.elapsed_seconds = self._elapsed_now()
             mins, secs = divmod(self.elapsed_seconds, 60)
             hrs, mins = divmod(mins, 60)
             if hrs > 0:
@@ -838,7 +1032,9 @@ class TrainingView:
             })
 
         # Formatta la durata totale trascorsa in una stringa leggibile (es. "1h 12m" o "45m")
-        m, s = divmod(self.elapsed_seconds, 60)
+        # Il calcolo usa l'orologio di parete: la durata è corretta anche se
+        # lo schermo è rimasto spento o l'app in background durante la sessione.
+        m, s = divmod(self._elapsed_now(), 60)
         h, m = divmod(m, 60)
         durata_str = f"{h}h {m}m" if h > 0 else f"{m}m {s}s"
 

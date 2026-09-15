@@ -53,6 +53,7 @@ si ricade sulla cartella corrente del progetto.
 import base64
 import json
 import os
+import shutil
 from datetime import datetime
 
 DATA_FILENAME = "giogym_data.json"
@@ -111,10 +112,54 @@ def load_data() -> dict:
 
 
 def save_data(data: dict) -> None:
-    """Salva l'intero dizionario dati su file JSON (indentato e leggibile)."""
+    """Salva l'intero dizionario dati su file JSON (indentato e leggibile)
+    e crea automaticamente una copia di backup datata nella cartella
+    'backups' accanto al file dati (rotazione: si tiene l'ultima copia per
+    giorno, massimo MAX_BACKUP_DAYS; le più vecchie vengono eliminate)."""
     path = get_data_path()
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+    try:
+        bdir = backup_dir()
+        nome_bk = f"giogym_data_{datetime.now().strftime('%Y%m%d')}.json"
+        destino = os.path.join(bdir, nome_bk)
+        if not os.path.exists(destino):
+            shutil.copy2(path, destino)
+        _ruota_backup(bdir)
+    except OSError:
+        # Se la copia di backup fallisce non blocchiamo il salvataggio
+        # principale (es. permessi limitati su alcune piattaforme mobili).
+        pass
+
+
+def backup_dir() -> str:
+    """Cartella dei backup automatici, accanto al file dati principale."""
+    bdir = os.path.join(os.path.dirname(get_data_path()), "backups")
+    os.makedirs(bdir, exist_ok=True)
+    return bdir
+
+
+MAX_BACKUP_DAYS = 30
+
+
+def _ruota_backup(bdir: str) -> None:
+    """Elimina i backup giornalieri più vecchi (tiene solo gli ultimi
+    MAX_BACKUP_DAYS file)."""
+    file_data = [
+        os.path.join(bdir, n)
+        for n in os.listdir(bdir)
+        if n.startswith("giogym_data_") and n.endswith(".json")
+    ]
+    if len(file_data) <= MAX_BACKUP_DAYS:
+        return
+    # Ordiniamo per data nel nome (YYYYMMDD) e rimuoviamo i più vecchi.
+    file_data.sort(key=lambda p: os.path.basename(p))
+    for vecchio in file_data[:-MAX_BACKUP_DAYS]:
+        try:
+            os.remove(vecchio)
+        except OSError:
+            pass
 
 
 def today_str() -> str:

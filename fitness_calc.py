@@ -184,11 +184,16 @@ def settimane_attive(storico: list) -> set:
 
 def streak_settimane_consecutive(storico: list, target_settimanale: int) -> int:
     """Numero di settimane consecutive (fino alla più recente con allenamenti)
-    in cui sono stati completati almeno `target_settimanale` allenamenti.
+    in cui è stato rispettato l'obiettivo settimanale.
 
-    Il conteggio parte dalla settimana più recente in cui c'è almeno un
-    allenamento e procede a ritroso: se una settimana non raggiunge il target
-    o manca del tutto (buco temporale), la streak si interrompe."""
+    Regole:
+    - La settimana corrente è considerata "in corso": basta aver svolto
+      almeno 1 allenamento perché continui a contare (il target non è ancora
+      raggiungibile a metà settimana).
+    - Le settimane passate (completate) richiedono invece almeno
+      `target_settimanale` allenamenti.
+    - Se una settimana non rispetta l'obiettivo o manca del tutto (buco
+      temporale), la streak si interrompe."""
     target = int(target_settimanale or 0)
 
     # Raggruppa per lunedì di ogni settimana con almeno un allenamento.
@@ -204,11 +209,19 @@ def streak_settimane_consecutive(storico: list, target_settimanale: int) -> int:
     if not per_lunedi:
         return 0
 
+    oggi = date.today()
+    lunedi_corrente = oggi - timedelta(days=oggi.weekday())
+
+    def _ok(lunedi, conteggio):
+        if lunedi == lunedi_corrente:
+            return conteggio >= 1
+        return conteggio >= target
+
     # Parti dal lunedì più recente che ha allenamenti.
     cursore = max(per_lunedi)
     streak = 0
     for _ in range(len(per_lunedi) + 1):
-        if cursore in per_lunedi and per_lunedi[cursore] >= target:
+        if cursore in per_lunedi and _ok(cursore, per_lunedi[cursore]):
             streak += 1
         else:
             break
